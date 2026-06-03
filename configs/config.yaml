@@ -1,0 +1,87 @@
+# =============================================================================
+# ISLES 2026 — Master Pipeline Config
+# All pipeline modules read from this file via OmegaConf.
+# Track-specific overrides are in configs/track_*.yaml
+# =============================================================================
+
+data:
+  root:          "/kaggle/input/notebooks/josephderrick/ingest-atlas/atlas_raw"
+  images_dir:    "images"
+  masks_dir:     "masks"
+  meta_csv:      "metadata/metadata.csv"
+  inventory:     "inventory.json"
+  processed_dir: "/kaggle/working/processed"   # output of preprocessing
+  n_splits:      5                             # CV folds
+  seed:          42
+
+preprocessing:
+  target_orientation: "RAS"          # canonical orientation
+  normalization: "per_scan_zscore"   # confirmed by EDA (inter-site CV=1.453)
+  clip_percentiles: [0.5, 99.5]      # clip before z-score
+  resample: false                    # spacing already isotropic 1mm³
+  num_workers: 4
+
+chronicity:
+  # Derived thresholds (clinical standard)
+  acute_max_days:    7
+  subacute_max_days: 90
+  # Embedding dim for unknown/missing metadata
+  unknown_token: "unknown"
+  categories: ["acute", "subacute", "chronic", "unknown"]
+
+split:
+  stratify_by: ["CHRONICITY_DERIVED", "SITE"]   # joint stratification
+  test_size: 0.0                                  # no held-out; use CV only
+  val_fold: 0                                     # fold used as validation
+
+training:
+  epochs:        1000
+  batch_size:    2
+  patch_size:    [128, 128, 128]
+  optimizer:     "adamw"
+  lr:            1.0e-3
+  weight_decay:  1.0e-5
+  lr_scheduler:  "poly"             # poly decay as in nnU-Net
+  poly_exp:      0.9
+  early_stopping_patience: 50
+  mixed_precision: true
+  grad_clip:     1.0
+
+loss:
+  dice_weight:       1.0
+  ce_weight:         1.0
+  boundary_weight:   0.5            # boundary focal term
+  small_lesion_threshold_ml: 1.0   # below this → upweighted
+  small_lesion_weight: 2.0
+
+# Conditioning track — swapped via track config
+conditioning:
+  track: "A"                        # "A" = FiLM, "C" = LLM
+  film:
+    metadata_dim:   4               # [days_norm, chronicity_onehot(3)]
+    hidden_dim:     64
+    inject_at:      "bottleneck"    # where in decoder to inject
+  llm:
+    model_name:     "Qwen/Qwen2.5-1.5B"
+    embedding_dim:  1536
+    hidden_dim:     256
+    inject_at:      "bottleneck"
+    freeze_llm:     true            # LLM weights frozen; only projection trained
+
+tta:
+  enabled: true
+  flips:   [[0], [1], [2], [0,1], [0,2], [1,2], [0,1,2]]
+
+postprocessing:
+  min_component_size_voxels: 10    # remove speckle
+
+evaluation:
+  metrics: ["dice", "hausdorff95", "precision", "recall"]
+  size_bins:                        # lesion-size stratified reporting
+    small:  [0,    1]
+    medium: [1,    10]
+    large:  [10,   1e9]
+
+logging:
+  level: "INFO"
+  log_dir: "/kaggle/working/logs"

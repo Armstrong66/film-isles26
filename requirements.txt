@@ -1,0 +1,53 @@
+# =============================================================================
+# ISLES 2026 — Requirements
+# Python 3.10+  |  Tested: Kaggle (CUDA 12.x), Ubuntu 22.04 + RTX
+# =============================================================================
+
+# ── Core scientific stack ─────────────────────────────────────────────────────
+numpy==1.26.4
+scipy==1.13.1
+pandas==2.2.2
+matplotlib==3.9.0
+seaborn==0.13.2
+
+# ── Medical image I/O ─────────────────────────────────────────────────────────
+nibabel==5.2.1
+SimpleITK==2.3.1
+
+# ── Deep learning ─────────────────────────────────────────────────────────────
+# Install PyTorch separately with the correct CUDA wheel:
+#   pip install torch==2.3.1 torchvision==0.18.1 --index-url https://download.pytorch.org/whl/cu121
+torch==2.3.1
+torchvision==0.18.1
+
+# ── Augmentation ─────────────────────────────────────────────────────────────
+monai==1.3.2
+
+# ── Config management ────────────────────────────────────────────────────────
+omegaconf==2.3.0
+pyyaml==6.0.1
+
+# ── Training utilities ────────────────────────────────────────────────────────
+tqdm==4.66.4
+
+# ── Metrics ───────────────────────────────────────────────────────────────────
+scikit-learn==1.5.0
+# surface-distance (HD95) — no stable PyPI release, install via:
+#   pip install git+https://github.com/deepmind/surface-distance.git
+
+# ── Track C — LLM conditioning (optional, only needed for Track C) ───────────
+transformers==4.44.0
+accelerate==0.33.0
+sentencepiece==0.2.0
+
+# ── Testing ───────────────────────────────────────────────────────────────────
+pytest==8.2.2
+
+# ── Code quality (CI / GitHub) ────────────────────────────────────────────────
+black==24.4.2
+ruff==0.4.9
+
+# ── Notebook support ─────────────────────────────────────────────────────────
+ipykernel==6.29.4
+ipywidgets==8.1.3
+jupyterlab==4.2.2

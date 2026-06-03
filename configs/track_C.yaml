@@ -1,0 +1,4 @@
+# Track C — nnU-Net + LLM language-grounded feature conditioning
+# Usage: OmegaConf.merge(base_config, track_C_config)
+conditioning:
+  track: "C"

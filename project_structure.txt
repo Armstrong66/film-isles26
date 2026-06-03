@@ -1,0 +1,29 @@
+isles26/
+├── configs/
+│   ├── config.yaml              # master config — all modules read from here
+│   ├── track_A.yaml             # override: conditioning.track = A
+│   └── track_C.yaml             # override: conditioning.track = C
+│
+├── pipeline/
+│   ├── preprocessing.py         # reorientation, clipping, z-score normalisation
+│   ├── splits.py                # stratified 5-fold CV split generation
+│   ├── augmentation.py          # MONAI transforms + chronicity-specific augmentation
+│   ├── dataset.py               # PyTorch Dataset + metadata encoding + DataLoader factory
+│   ├── conditioning.py          # FiLMConditioner (Track A) + LLMConditioner (Track C)
+│   ├── model.py                 # 3D U-Net backbone + FiLM injection + deep supervision
+│   ├── loss.py                  # Dice + CE + boundary focal + small-lesion weighting
+│   ├── train.py                 # training loop, poly LR, checkpointing, early stopping
+│   ├── evaluate.py              # per-scan metrics, TTA, size/chronicity stratification
+│   ├── visualize.py             # training curves, CV summary, overlays, track comparison
+│   └── tests/
+│       └── test_pipeline.py     # full unit + smoke test suite (10 test classes)
+│
+├── notebooks/
+│   ├── ingest_atlas.ipynb       # one-time: download + extract + organise raw data
+│   ├── ingest_atlas_fix.ipynb   # fixed inventory + organiser cells (replaces cells 5-6)
+│   ├── eda_atlas.ipynb          # EDA: orientation, intensity, lesion, site heterogeneity
+│   └── smoke_tests.ipynb        # Kaggle-compatible test runner (wraps test_pipeline.py)
+│
+├── requirements.txt
+├── pytest.ini
+└── README.md                    # add this before GitHub push

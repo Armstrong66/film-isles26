@@ -1,0 +1,11 @@
+# Data and checkpoints — never commit
+*.nii.gz
+*.nii
+*.tar.gz
+*.zip
+logs/
+processed/
+__pycache__/
+*.pth
+*.pyc
+.DS_Store

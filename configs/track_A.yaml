@@ -1,0 +1,4 @@
+# Track A — nnU-Net + FiLM metadata gate
+# Usage: OmegaConf.merge(base_config, track_A_config)
+conditioning:
+  track: "A"
