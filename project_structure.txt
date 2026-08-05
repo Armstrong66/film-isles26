@@ -1,29 +1,40 @@
 isles26/
 ├── configs/
-│   ├── config.yaml              # master config — all modules read from here
-│   ├── track_A.yaml             # override: conditioning.track = A
-│   └── track_C.yaml             # override: conditioning.track = C
+│   ├── config.yaml
+│   ├── track_A.yaml
+│   └── track_C.yaml
 │
 ├── pipeline/
-│   ├── preprocessing.py         # reorientation, clipping, z-score normalisation
-│   ├── splits.py                # stratified 5-fold CV split generation
-│   ├── augmentation.py          # MONAI transforms + chronicity-specific augmentation
-│   ├── dataset.py               # PyTorch Dataset + metadata encoding + DataLoader factory
-│   ├── conditioning.py          # FiLMConditioner (Track A) + LLMConditioner (Track C)
-│   ├── model.py                 # 3D U-Net backbone + FiLM injection + deep supervision
-│   ├── loss.py                  # Dice + CE + boundary focal + small-lesion weighting
-│   ├── train.py                 # training loop, poly LR, checkpointing, early stopping
-│   ├── evaluate.py              # per-scan metrics, TTA, size/chronicity stratification
-│   ├── visualize.py             # training curves, CV summary, overlays, track comparison
+│   ├── preprocessing.py
+│   ├── splits.py
+│   ├── augmentation.py
+│   ├── dataset.py
+│   ├── conditioning.py
+│   ├── model.py
+│   ├── loss.py
+│   ├── train.py
+│   ├── evaluate.py              # updated — all 5 official metrics
+│   ├── visualize.py
 │   └── tests/
-│       └── test_pipeline.py     # full unit + smoke test suite (10 test classes)
+│       └── test_pipeline.py
+│
+├── utils/                       # ← ADD THIS (copy from organizer repo)
+│   ├── __init__.py              # empty file
+│   └── eval_utils.py            # organizer-provided, do not modify
 │
 ├── notebooks/
-│   ├── ingest_atlas.ipynb       # one-time: download + extract + organise raw data
-│   ├── ingest_atlas_fix.ipynb   # fixed inventory + organiser cells (replaces cells 5-6)
-│   ├── eda_atlas.ipynb          # EDA: orientation, intensity, lesion, site heterogeneity
-│   └── smoke_tests.ipynb        # Kaggle-compatible test runner (wraps test_pipeline.py)
+│   ├── ingest_atlas.ipynb
+│   ├── ingest_atlas_fix.ipynb
+│   ├── eda_atlas.ipynb
+│   └── smoke_tests.ipynb
 │
 ├── requirements.txt
 ├── pytest.ini
-└── README.md                    # add this before GitHub push
+└── README.md
+
+NOTES:
+- utils/eval_utils.py is the organizer's file verbatim — never modify it
+- utils/__init__.py is an empty file to make it a Python package
+- evaluate.py imports from utils.eval_utils — sys.path must include the repo root
+- On Kaggle: copy utils/ into /kaggle/working/ alongside pipeline/
+- On RTX: run from repo root so utils/ is on the Python path
