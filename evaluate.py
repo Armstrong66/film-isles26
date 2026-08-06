@@ -327,7 +327,7 @@ def main() -> None:
     )
 
     all_results = []
-    for fold in folds_to_run:
+    for fold in tqdm(folds_to_run, desc="Evaluating folds", total=len(folds_to_run)):
         result = evaluate_fold(cfg, fold, splits, df_meta, device, use_tta=args.tta)
         all_results.append(result)
 

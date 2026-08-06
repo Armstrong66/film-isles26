@@ -253,8 +253,16 @@ class PreprocessingPipeline:
         self.out_mask_dir  = self.out_dir / "masks"
         self.out_stats_dir = self.out_dir / "stats"
 
-        for d in [self.out_img_dir, self.out_mask_dir, self.out_stats_dir]:
-            d.mkdir(parents=True, exist_ok=True)
+        # Use /kaggle/temp if available (larger space), fall back to working
+        if str(self.out_dir).startswith("/kaggle/temp"):
+            self.out_dir.mkdir(parents=True, exist_ok=True)
+            # Also symlink to /kaggle/working for easy access
+            working_link = Path("/kaggle/working/processed")
+            if not working_link.exists():
+                try:
+                    working_link.symlink_to(self.out_dir, target_is_directory=True)
+                except (OSError, NotImplementedError):
+                    pass  # Symlinks may not be available on all systems
 
     def _build_job_list(self, training_uids: set, overwrite: bool) -> list[tuple]:
         jobs = []

@@ -10,7 +10,7 @@ data:
   masks_dir:     "masks"
   meta_csv:      "metadata/metadata.csv"
   inventory:     "inventory.json"
-  processed_dir: "/kaggle/working/processed"   # output of preprocessing
+  processed_dir: "/kaggle/temp/processed"      # output of preprocessing (use /kaggle/temp for space)
   n_splits:      5                             # CV folds
   seed:          42
 

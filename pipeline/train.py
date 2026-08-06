@@ -31,8 +31,9 @@ import numpy as np
 import torch
 import torch.nn as nn
 from omegaconf import OmegaConf, DictConfig
-from torch.cuda.amp import GradScaler, autocast
+from torch.amp import GradScaler, autocast
 import pandas as pd
+from tqdm import tqdm
 
 from dataset import build_dataloaders
 from model import build_model
@@ -126,6 +127,7 @@ def run_epoch(
     device:     torch.device,
     is_train:   bool,
     grad_clip:  float = 1.0,
+    fold:       int = 0,
 ) -> dict:
     model.train() if is_train else model.eval()
     ctx = torch.enable_grad() if is_train else torch.no_grad()
@@ -134,8 +136,9 @@ def run_epoch(
     total_dice = 0.0
     n_batches  = 0
 
+    desc = "Training" if is_train else "Validation"
     with ctx:
-        for batch in loader:
+        for batch in tqdm(loader, desc=f"Fold {fold} {desc}", leave=False):
             image     = batch["image"].to(device)
             mask      = batch["mask"].to(device)
             meta_vec  = batch["meta_vec"].to(device)
@@ -231,11 +234,11 @@ def train_fold(
 
         train_metrics = run_epoch(
             model, train_dl, criterion, optimizer, scaler,
-            device, is_train=True, grad_clip=cfg.training.grad_clip,
+            device, is_train=True, grad_clip=cfg.training.grad_clip, fold=fold,
         )
         val_metrics = run_epoch(
             model, val_dl, criterion, None, None,
-            device, is_train=False,
+            device, is_train=False, fold=fold,
         )
 
         elapsed = time.time() - t0
