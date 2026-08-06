@@ -266,3 +266,78 @@ ENTRYPOINT ["python", "/opt/algorithm/entrypoint.py"]
 - [ ] Test on both RAS and LAS input orientations
 - [ ] Test on small and large lesion cases
 - [ ] Submit to preliminary phase first (2 debug scans) before final submission
+
+
+## RTX Data Paths
+
+### Directory layout (RTX workstation)
+Data lives OUTSIDE the project root — do not move it.
+
+/data/derrick/isles26/
+├── raw/
+│   ├── ATLAS3_Training_Raw/          # full dataset (1453 sessions, site folders R001-R071 + SOOP)
+│   └── isles26_train/
+│       ├── raw/                      # ← USE THIS for the 2 corrected cases + debug samples
+│       │   ├── sub-r032s056_ses-1_space-orig_desc-brain_T1w.nii.gz      # corrected T1w
+│       │   ├── sub-r032s027_ses-1_space-orig_label-lesion_...mask.nii.gz # corrected mask
+│       │   ├── sub-r032s013_ses-1_space-orig_label-lesion_...mask.nii.gz
+│       │   └── sub-r032s018_ses-1_space-orig_label-lesion_...mask.nii.gz
+│       └── preprocessed/             # ← NEVER USE — MNI space, violates challenge rules
+
+/home/derrick/projects/film-isles26/ # project root (code only)
+├── configs/config.yaml
+├── pipeline/
+├── utils/
+└── ...
+
+### Rules
+- ALWAYS use /data/derrick/isles26/raw/ATLAS3_Training_Raw/ as DATA_ROOT
+- NEVER use isles26_train/preprocessed/ — it is MNI-registered space
+- isles26_train/raw/ is ONLY for patching the 2 corrected cases before preprocessing
+
+### config.yaml — update these paths for RTX
+
+**Status: IMPLEMENTED** ✓
+
+Created `configs/config_rtx.yaml` with RTX paths pre-configured:
+- `data.root`: "/data/derrick/isles26/raw/ATLAS3_Training_Raw"
+- `data.processed_dir`: "/data/derrick/isles26/processed"
+- `logging.log_dir`: "/data/derrick/isles26/logs"
+
+For Kaggle: use `configs/config.yaml` (default paths already set)
+
+### Patch corrected cases before running preprocessing.py
+Run this once from the project root:
+
+python - <<'EOF'
+import shutil
+from pathlib import Path
+
+FIX_SRC  = Path("/data/derrick/isles26/raw/isles26_train/raw")
+DATA_ROOT = Path("/data/derrick/isles26/raw/ATLAS3_Training_Raw")
+
+fixes = [
+    # Corrected T1w (over-skull-stripped)
+    ("sub-r032s056_ses-1_space-orig_desc-brain_T1w.nii.gz",
+     "R032/sub-r032s056/ses-1/anat"),
+    # Corrected mask (file error)
+    ("sub-r032s027_ses-1_space-orig_label-lesion_desc-T1lesion_mask.nii.gz",
+     "R032/sub-r032s027/ses-1/anat"),
+]
+
+for filename, rel_dest in fixes:
+    src  = FIX_SRC / filename
+    dest = DATA_ROOT / rel_dest / filename
+    assert src.exists(), f"Fix file not found: {src}"
+    shutil.copy2(src, dest)
+    print(f"Patched: {dest}")
+EOF
+
+### Run order on RTX (from project root)
+cd /home/derrick/projects/film-isles26
+
+python pipeline/preprocessing.py --config configs/config.yaml --workers 8
+python pipeline/splits.py        --config configs/config.yaml --inspect
+python pipeline/train.py         --config configs/config.yaml --fold 0 --track A
+python pipeline/train.py         --config configs/config.yaml --fold all --track A
+python pipeline/evaluate.py      --config configs/config.yaml --fold all --tta

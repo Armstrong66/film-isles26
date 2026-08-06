@@ -33,7 +33,22 @@ pip install torch==2.3.1 torchvision==0.18.1 --index-url https://download.pytorc
 pip install -r requirements.txt
 ```
 
-### 2. Data Preparation
+### 2. Configure Data Paths
+
+**RTX Workstation Users**: Update `configs/config.yaml` with your RTX paths:
+```yaml
+data:
+  root:          "/data/derrick/isles26/raw/ATLAS3_Training_Raw"
+  processed_dir: "/data/derrick/isles26/processed"
+logging:
+  log_dir:       "/data/derrick/isles26/logs"
+```
+
+Alternatively, use `configs/config_rtx.yaml` which has RTX paths pre-configured.
+
+**Kaggle Users**: No changes needed - default paths work on Kaggle.
+
+### 3. Data Preparation
 
 The dataset must be preprocessed before training:
 
@@ -307,6 +322,25 @@ To add benchmark logging to entrypoint, uncomment the timing sections.
 - [ ] Test on both RAS and LAS input orientations
 - [ ] Test on small and large lesion cases
 - [ ] Submit to preliminary phase first (2 debug scans)
+
+---
+
+## RTX Data Paths
+
+Data lives OUTSIDE the project root on RTX workstations:
+
+```
+/data/derrick/isles26/
+├── raw/
+│   ├── ATLAS3_Training_Raw/          # full dataset (1453 sessions)
+│   └── isles26_train/
+│       ├── raw/                      # corrected cases + debug samples
+│       └── preprocessed/             # NEVER USE — MNI space
+```
+
+**RTX config path**: Use `configs/config_rtx.yaml` for RTX workstations.
+
+See `CLAUDE.md#rtx-data-paths` for details.
 
 ---
 

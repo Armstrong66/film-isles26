@@ -4,6 +4,11 @@
 # Track-specific overrides are in configs/track_*.yaml
 # =============================================================================
 
+# RTX DATA PATHS: Update these for RTX workstation
+#   root:          "/data/derrick/isles26/raw/ATLAS3_Training_Raw"
+#   processed_dir: "/data/derrick/isles26/processed"
+#   log_dir:       "/data/derrick/isles26/logs"
+# Kaggle PATHS: Keep as-is for Kaggle environment
 data:
   root:          "/kaggle/input/notebooks/josephderrick/ingest-atlas/atlas_raw"
   images_dir:    "images"
