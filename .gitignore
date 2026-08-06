@@ -3,7 +3,7 @@
 *.nii
 *.tar.gz
 *.zip
-!isles26_train.zip
+# !isles26_train.zip  # remove soon
 logs/
 processed/
 

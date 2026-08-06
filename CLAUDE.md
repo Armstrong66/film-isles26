@@ -175,3 +175,94 @@ See `## Roadmap` below.
 - Minimal but informative logging (log.info for stage boundaries, log.debug for per-scan)
 - Config-driven — no hardcoded paths or hyperparameters in scripts
 - Type hints on all public function signatures
+
+
+## Docker submission guidelines
+
+**Status: IMPLEMENTED** ✓
+
+Files created:
+- [`entrypoint.py`](entrypoint.py) — Docker entry point script
+- [`Dockerfile`](Dockerfile) — Docker build configuration
+- [`test_docker_locally.py`](test_docker_locally.py) — Local testing script
+- See [`README.md#docker-submission`](README.md#docker-submission) for usage
+
+### Hard constraints
+- GPU  : T4 (16GB VRAM)
+- RAM  : 32GB
+- Time : 10-minute hard kill for entire container
+- Input : single raw native-space T1w NIfTI (skull-stripped)
+- Output: binary lesion mask NIfTI matching input dimensions/spacing/orientation exactly
+
+### Inference pipeline inside Docker
+Entry point must:
+1. Read input path from environment variable or fixed path per template
+2. Load T1w NIfTI → reorient to RAS → clip/normalise (per-scan z-score)
+3. Load all 5 fold checkpoints from /opt/algorithm/checkpoints/
+4. Run forward pass on each fold model → average softmax probabilities
+5. Apply 0.5 threshold → remove components < 10 voxels
+6. Reorient output mask back to original input orientation
+7. Save binary mask NIfTI at the expected output path
+
+### Track selection for Docker
+Use Track A only for submission — Track C LLM loading adds ~2-3 min
+overhead that risks the 10-minute kill. Benchmark Track A inference
+on a T4 before finalising. Target: < 7 min total including model loading.
+
+### Model loading optimisation
+- Load all 5 checkpoints once at container startup (not per scan)
+- Use torch.load(..., map_location='cuda') with map_location to avoid CPU spike
+- Set model.eval() and torch.no_grad() globally
+- Use mixed precision (torch.cuda.amp.autocast) at inference
+
+### Output requirements
+- Same spatial dimensions as input (no resampling of output)
+- Same affine matrix as input (copy directly from input NIfTI header)
+- dtype: uint8, values: 0 or 1 only
+- File name and path: follow organizer template exactly
+
+### Build and test locally
+# Build
+docker build -t isles26-submission .
+
+# Test with a single training scan
+docker run --gpus all \
+  -v /path/to/test_input:/input \
+  -v /path/to/test_output:/output \
+  isles26-submission
+
+# Verify output matches input geometry
+python -c "
+import nibabel as nib
+inp = nib.load('/path/to/test_input/image.nii.gz')
+out = nib.load('/path/to/test_output/mask.nii.gz')
+assert inp.shape == out.shape
+assert (inp.affine == out.affine).all()
+print('Geometry check passed')
+"
+
+### Dockerfile key elements
+FROM pytorch/pytorch:2.3.1-cuda12.1-cudnn8-runtime
+# Copy only what inference needs — not the full repo
+COPY pipeline/model.py pipeline/conditioning.py pipeline/preprocessing.py /opt/algorithm/
+COPY utils/ /opt/algorithm/utils/
+COPY configs/config.yaml /opt/algorithm/
+COPY checkpoints/ /opt/algorithm/checkpoints/   # 5 fold best.pth files
+COPY entrypoint.py /opt/algorithm/
+RUN pip install nibabel monai omegaconf panoptica --no-cache-dir
+ENTRYPOINT ["python", "/opt/algorithm/entrypoint.py"]
+
+### entrypoint.py responsibilities
+- Hardcode input/output paths per organizer template
+- No argparse — Docker entry is not interactive
+- Catch all exceptions, log to stderr, exit 1 on failure
+- Log timing per stage so you can profile the 10-min budget
+
+### Submission checklist
+- [ ] Output mask geometry matches input exactly (shape + affine)
+- [ ] Container runs in < 10 min on a single scan on T4
+- [ ] No internet access required inside container (all weights bundled)
+- [ ] Empty mask output works correctly for healthy scans
+- [ ] Test on both RAS and LAS input orientations
+- [ ] Test on small and large lesion cases
+- [ ] Submit to preliminary phase first (2 debug scans) before final submission

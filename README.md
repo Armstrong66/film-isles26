@@ -176,8 +176,137 @@ Natural language string:
 - **Time limit**: 10 minutes per scan on T4 GPU
 - **Memory**: 32GB RAM
 - **Native space only**: No registration to MNI allowed in final output
+- **Track A only**: Track C adds ~2-3 min LLM loading overhead
 
 Track C (LLM) is a time risk — benchmark Track A first.
+
+---
+
+## Docker Submission
+
+### Overview
+
+This project is designed for Grand Challenge Docker submission. The pipeline:
+1. Loads a single T1w NIfTI input
+2. Reorients to RAS, clips, and normalizes
+3. Runs ensemble prediction across 5 fold models
+4. Applies thresholding and connected component removal
+5. Reorients output back to input orientation
+
+### Prerequisites
+
+- Docker installed (version 20.10+ recommended)
+- Trained model checkpoints (`fold_0_best.pth` through `fold_4_best.pth`)
+- Test NIfTI scan (can be any ATLAS training scan)
+
+### Quick Start
+
+#### 1. Build the Docker Image
+
+```bash
+# From the project root (where Dockerfile is located)
+docker build -t isles26-submission .
+```
+
+#### 2. Prepare Checkpoints
+
+The Docker image expects checkpoints in `/opt/algorithm/checkpoints/`:
+```bash
+mkdir -p checkpoints
+cp path/to/fold_0_best.pth checkpoints/
+cp path/to/fold_1_best.pth checkpoints/
+cp path/to/fold_2_best.pth checkpoints/
+cp path/to/fold_3_best.pth checkpoints/
+cp path/to/fold_4_best.pth checkpoints/
+```
+
+#### 3. Build with Checkpoints
+
+**Option A: Copy checkpoints into image (recommended for final submission)**
+```bash
+# Edit Dockerfile line 46 to: COPY checkpoints/ /opt/algorithm/checkpoints/
+docker build -t isles26-submission .
+```
+
+**Option B: Mount checkpoints at runtime (for testing)**
+```bash
+docker build -t isles26-submission .
+docker run --gpus all \
+  -v /path/to/checkpoints:/opt/algorithm/checkpoints \
+  isles26-submission
+```
+
+#### 4. Run Inference
+
+```bash
+# Test with a local scan
+docker run --gpus all \
+  -v /path/to/test_input:/input \
+  -v /path/to/test_output:/output \
+  isles26-submission
+```
+
+#### 5. Verify Output Geometry
+
+```bash
+python -c "
+import nibabel as nib
+import numpy as np
+
+inp = nib.load('/path/to/test_input/image.nii.gz')
+out = nib.load('/path/to/test_output/mask.nii.gz')
+
+assert inp.shape == out.shape, f'Shape mismatch: {inp.shape} vs {out.shape}'
+assert np.allclose(inp.affine, out.affine), 'Affine mismatch'
+
+data = out.get_fdata()
+assert set(np.unique(data)).issubset({0.0, 1.0}), 'Non-binary values found'
+
+print('Geometry check passed!')
+"
+```
+
+### Local Testing (RTX Workstation)
+
+Before building Docker, test locally on your RTX workstation:
+
+```bash
+# Install dependencies
+pip install nibabel monai omegaconf scipy scikit-learn
+
+# Run local test (assumes checkpoints exist)
+python test_docker_locally.py \
+    --input /path/to/test_scan.nii.gz \
+    --output /path/to/test_output.nii.gz \
+    --checkpoint /path/to/checkpoint/fold_0_best.pth \
+    --no-tta
+```
+
+**Expected timing on RTX 3090:**
+- Model loading: ~10-15s
+- Preprocessing: ~5-10s
+- Inference (no TTA): ~3-5s
+- Total: < 30s per scan (well under 10-min limit)
+
+### Dockerfile Customization
+
+Key files in the Docker image:
+- `/opt/algorithm/entrypoint.py` — Main inference script
+- `/opt/algorithm/pipeline/` — Pipeline modules
+- `/opt/algorithm/utils/` — Evaluation utilities
+- `/opt/algorithm/checkpoints/` — 5 fold models
+
+To add benchmark logging to entrypoint, uncomment the timing sections.
+
+### Grand Challenge Submission Checklist
+
+- [ ] Output mask geometry matches input exactly (shape + affine)
+- [ ] Container runs in < 10 min on a single scan on T4
+- [ ] No internet access required inside container (all weights bundled)
+- [ ] Empty mask output works correctly for healthy scans
+- [ ] Test on both RAS and LAS input orientations
+- [ ] Test on small and large lesion cases
+- [ ] Submit to preliminary phase first (2 debug scans)
 
 ---
 
