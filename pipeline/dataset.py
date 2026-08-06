@@ -51,20 +51,31 @@ DAYS_MAX          = 10000.0   # clip + log-normalise; EDA showed max ~10000
 
 def encode_metadata_vector(
     days_post_stroke: Optional[float],
-    chronicity:       str,
+    chronicity_raw:   Optional[float],  # 1.0 = confirmed chronic, NaN = not available
+    chronicity_derived: str,            # derived label from DAYS_POST_STROKE
 ) -> torch.Tensor:
     """
     Encode metadata as a fixed-length float vector for Track A (FiLM gate).
 
-    Layout (dim=4):
+    Layout (dim=5):
         [0] days_norm      — log1p(days) / log1p(DAYS_MAX), in [0,1]; 0.5 if unknown
-        [1] is_acute       — 1.0 if chronicity == 'acute'
-        [2] is_subacute    — 1.0 if chronicity == 'subacute'
-        [3] is_chronic     — 1.0 if chronicity == 'chronic'
-        (unknown maps to all-zero one-hot, distinguished from chronic by days_norm)
+        [1] is_acute       — 1.0 if chronicity_derived == 'acute'
+        [2] is_subacute    — 1.0 if chronicity_derived == 'subacute'
+        [3] is_chronic     — 1.0 if chronicity_derived == 'chronic'
+        [4] confirmed_chronic — 1.0 if chronicity_raw == 1.0 (confirmed 180+ days)
+                                0.0 otherwise (unknown, not chronic, or NaN)
 
-    Rationale: continuous days encoding preserves within-phase ordering
-    (e.g. day 2 vs day 6 within acute); one-hot provides the phase boundary signal.
+    The chronicity_derived from DAYS_POST_STROKE is the primary signal.
+    The confirmed_chronic flag is added only when the organizer-provided
+    chronicity == 1.0 (confirmed chronic, 180+ days post-stroke).
+
+    Args:
+        days_post_stroke: float or None (from DAYS_POST_STROKE column)
+        chronicity_raw: 1.0 if confirmed chronic ( organizer-provided), NaN otherwise
+        chronicity_derived: derived label ('acute', 'subacute', 'chronic', 'unknown')
+
+    Returns:
+        FloatTensor of shape (5,)
     """
     if days_post_stroke is None or np.isnan(float(days_post_stroke)):
         days_norm = 0.5   # midpoint sentinel for unknown
@@ -72,14 +83,18 @@ def encode_metadata_vector(
         days_clipped = min(float(days_post_stroke), DAYS_MAX)
         days_norm    = np.log1p(days_clipped) / np.log1p(DAYS_MAX)
 
-    chron = chronicity if chronicity in CHRONICITY_TO_IDX else "unknown"
+    # One-hot from chronicity_derived (our primary signal)
+    chron = chronicity_derived if chronicity_derived in CHRONICITY_TO_IDX else "unknown"
     one_hot = [
         1.0 if chron == "acute"    else 0.0,
         1.0 if chron == "subacute" else 0.0,
         1.0 if chron == "chronic"  else 0.0,
     ]
 
-    return torch.tensor([days_norm] + one_hot, dtype=torch.float32)
+    # confirmed_chronic: only 1.0 when organizer says chronicity == 1.0
+    confirmed_chronic = 1.0 if chronicity_raw == 1.0 else 0.0
+
+    return torch.tensor([days_norm] + one_hot + [confirmed_chronic], dtype=torch.float32)
 
 
 def encode_metadata_text(
@@ -152,13 +167,14 @@ class ISLES26Dataset(Dataset):
         img_t     = aug_out["image"].float()
         mask_t    = aug_out["mask"].long()
 
-        # ── Metadata encoding ─────────────────────────────────────────────────
-        chronicity = rec.get("chronicity", "unknown")
-        days       = rec.get("days_post_stroke", None)
-        site       = rec.get("site", "unknown")
+        # ── Metadata encoding ───────────────────────────────────────────────────
+        chronicity_derived = rec.get("chronicity", "unknown")
+        days               = rec.get("days_post_stroke", None)
+        site               = rec.get("site", "unknown")
+        chronicity_raw     = rec.get("chronicity_raw", None)  # 1.0 or NaN from organizer
 
-        meta_vec  = encode_metadata_vector(days, chronicity)
-        meta_text = encode_metadata_text(uid, days, chronicity, site)
+        meta_vec  = encode_metadata_vector(days, chronicity_raw, chronicity_derived)
+        meta_text = encode_metadata_text(uid, days, chronicity_derived, site)
 
         return {
             "image":      img_t,
@@ -166,10 +182,11 @@ class ISLES26Dataset(Dataset):
             "meta_vec":   meta_vec,
             "meta_text":  meta_text,
             "uid":        uid,
-            "chronicity": chronicity,
+            "chronicity": chronicity_derived,
             "metadata": {
                 "days_post_stroke": days,
                 "site":             site,
+                "chronicity_raw":   chronicity_raw,
             },
         }
 
@@ -207,6 +224,7 @@ def build_records(
             "chronicity":       meta.get("CHRONICITY_DERIVED", "unknown"),
             "days_post_stroke": meta.get("DAYS_POST_STROKE", None),
             "site":             meta.get("SITE", "unknown"),
+            "chronicity_raw":   meta.get("CHRONICITY", None),  # 1.0 or NaN
         })
 
     if skipped:

@@ -58,7 +58,7 @@ loss:
 conditioning:
   track: "A"                        # "A" = FiLM, "C" = LLM
   film:
-    metadata_dim:   4               # [days_norm, chronicity_onehot(3)]
+    metadata_dim:   5               # [days_norm, chronicity_onehot(3), confirmed_chronic]
     hidden_dim:     64
     inject_at:      "bottleneck"    # where in decoder to inject
   llm:

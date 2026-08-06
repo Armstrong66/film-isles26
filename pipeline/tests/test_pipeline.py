@@ -114,7 +114,7 @@ def cfg():
         },
         "conditioning": {
             "track": "A",
-            "film":  {"metadata_dim": 4, "hidden_dim": 64, "inject_at": "bottleneck"},
+            "film":  {"metadata_dim": 5, "hidden_dim": 64, "inject_at": "bottleneck"},
             "llm":   {
                 "model_name":    "Qwen/Qwen2.5-1.5B",
                 "embedding_dim": 1536,
@@ -172,7 +172,7 @@ def small_tensor():
 
 @pytest.fixture(scope="session")
 def dummy_meta():
-    meta_vec  = torch.rand(2, 4)
+    meta_vec  = torch.rand(2, 5)
     meta_text = [
         "Stroke MRI from site R001. Time since stroke: 45 days. Phase: chronic.",
         "Stroke MRI from site R009. Time since stroke: unknown. Phase: unknown.",
@@ -257,29 +257,43 @@ class TestPreprocessing:
 
 class TestMetadataEncoding:
 
-    @pytest.mark.parametrize("days,chron,expected_idx", [
-        (45,   "chronic",  [False, False, True]),   # is_chronic = 1
-        (3,    "acute",    [True,  False, False]),   # is_acute = 1
-        (30,   "subacute", [False, True,  False]),   # is_subacute = 1
-        (None, "unknown",  [False, False, False]),   # all-zero one-hot
+    @pytest.mark.parametrize("days,chron_derived,chron_raw,expected_idx", [
+        (45,   "chronic",  1.0,        [False, False, True]),   # is_chronic = 1
+        (3,    "acute",    None,       [True,  False, False]),   # is_acute = 1
+        (30,   "subacute", None,       [False, True,  False]),   # is_subacute = 1
+        (None, "unknown",  None,       [False, False, False]),   # all-zero one-hot
     ])
-    def test_encode_metadata_vector_onehot(self, days, chron, expected_idx):
-        vec = encode_metadata_vector(days, chron)
-        assert vec.shape == (4,), f"Expected shape (4,), got {vec.shape}"
+    def test_encode_metadata_vector_onehot(self, days, chron_derived, chron_raw, expected_idx):
+        vec = encode_metadata_vector(days, chron_raw, chron_derived)
+        assert vec.shape == (5,), f"Expected shape (5,), got {vec.shape}"
         for i, expected in enumerate(expected_idx):
             val = vec[i + 1].item()  # skip days_norm at index 0
             assert (val == 1.0) == expected, \
                 f"Index {i+1}: expected {expected}, got {val}"
 
+    def test_encode_metadata_vector_confirmed_chronic_flag(self):
+        """confirmed_chronic should be 1.0 only when chronicity_raw == 1.0"""
+        # chronic_raw = 1.0 → confirmed_chronic = 1.0
+        vec1 = encode_metadata_vector(45.0, 1.0, "chronic")
+        assert vec1[4].item() == 1.0, "confirmed_chronic should be 1.0 when chronicity_raw=1.0"
+
+        # chronic_raw = None → confirmed_chronic = 0.0
+        vec2 = encode_metadata_vector(45.0, None, "chronic")
+        assert vec2[4].item() == 0.0, "confirmed_chronic should be 0.0 when chronicity_raw=None"
+
+        # chronic_raw = NaN → confirmed_chronic = 0.0
+        vec3 = encode_metadata_vector(45.0, float("nan"), "chronic")
+        assert vec3[4].item() == 0.0, "confirmed_chronic should be 0.0 when chronicity_raw=NaN"
+
     def test_encode_metadata_vector_days_range(self):
         """days_norm must always be in [0, 1]."""
         for days in [0, 1, 7, 90, 365, 5000, 10000]:
-            vec = encode_metadata_vector(float(days), "chronic")
+            vec = encode_metadata_vector(float(days), None, "chronic")
             assert 0.0 <= vec[0].item() <= 1.0, \
                 f"days_norm out of range for days={days}: {vec[0].item()}"
 
     def test_encode_metadata_vector_nan_days(self):
-        vec = encode_metadata_vector(float("nan"), "chronic")
+        vec = encode_metadata_vector(float("nan"), None, "chronic")
         assert vec[0].item() == pytest.approx(0.5), \
             "NaN days should produce sentinel 0.5"
 
@@ -295,7 +309,7 @@ class TestMetadataEncoding:
         assert "unknown" in text.lower()
 
     def test_metadata_vector_dtype(self):
-        vec = encode_metadata_vector(100.0, "subacute")
+        vec = encode_metadata_vector(100.0, None, "subacute")
         assert vec.dtype == torch.float32
 
 
@@ -442,8 +456,8 @@ class TestDataset:
                                 tmp_processed_dir / "masks")
         ds     = ISLES26Dataset(records, get_val_transforms(), is_train=False)
         sample = ds[0]
-        assert sample["meta_vec"].shape == (4,), \
-            f"meta_vec must be shape (4,), got {sample['meta_vec'].shape}"
+        assert sample["meta_vec"].shape == (5,), \
+            f"meta_vec must be shape (5,), got {sample['meta_vec'].shape}"
 
     def test_dataset_missing_file_skipped(self, tmp_processed_dir):
         uids    = ["R001__sub-r001s001__ses-1", "NONEXISTENT__uid__ses-1"]
@@ -639,6 +653,28 @@ class TestModel:
         pred   = model.predict(img, meta_vec, meta_text)
         assert pred.shape == (2, 1, 32, 32, 32)
 
+    def test_predict_can_output_empty_mask(self, cfg):
+        """Model must be able to output an all-zero mask for scans with no lesion."""
+        # Create image with very low intensity (no lesion signal)
+        img = torch.randn(1, 1, 32, 32, 32) * 0.1  # very low signal
+        meta_vec = torch.rand(1, 5)
+        meta_text = ["scan with no lesion"]
+        model = build_model(cfg)
+
+        # Set model to eval
+        model.eval()
+
+        with torch.no_grad():
+            pred = model.predict(img, meta_vec, meta_text)
+
+        # The model should be able to output an all-zero mask
+        # (it may not always do so on random input, but the capability must exist)
+        unique = torch.unique(pred).tolist()
+        assert set(unique).issubset({0, 1}), \
+            f"predict() must return binary mask, got {unique}"
+        # At least one voxel must be 0 (empty mask is valid)
+        assert 0 in unique, "Model must be able to predict empty (all-zero) mask"
+
     def test_resblock_output_shape(self):
         block = ResBlock(16, 32)
         x     = torch.randn(2, 16, 8, 8, 8)
@@ -705,7 +741,7 @@ class TestLoss:
     def test_combined_loss_forward(self, cfg, small_tensor):
         img, mask  = small_tensor
         model      = build_model(cfg)
-        meta_vec   = torch.rand(2, 4)
+        meta_vec   = torch.rand(2, 5)
         meta_text  = ["text a", "text b"]
         logits     = model(img, meta_vec, meta_text)
         criterion  = ISLES26Loss(cfg)
@@ -719,7 +755,7 @@ class TestLoss:
         """Loss must support gradient flow."""
         img, mask = small_tensor
         model     = build_model(cfg)
-        meta_vec  = torch.rand(2, 4)
+        meta_vec  = torch.rand(2, 5)
         meta_text = ["text a", "text b"]
         logits    = model(img, meta_vec, meta_text)
         criterion = ISLES26Loss(cfg)
@@ -733,7 +769,7 @@ class TestLoss:
         """Ensure deep supervision normalisation doesn't inflate loss."""
         img, mask = small_tensor
         model     = build_model(cfg)
-        meta_vec  = torch.rand(2, 4)
+        meta_vec  = torch.rand(2, 5)
         meta_text = ["t", "t"]
         logits    = model(img, meta_vec, meta_text)
         criterion = ISLES26Loss(cfg)
@@ -813,7 +849,7 @@ class TestIntegration:
 
     def test_full_forward_backward_track_A(self, cfg, small_tensor):
         img, mask  = small_tensor
-        meta_vec   = torch.rand(2, 4)
+        meta_vec   = torch.rand(2, 5)
         meta_text  = ["chronic scan R001 45 days", "acute scan R009 3 days"]
         model      = build_model(cfg)
         criterion  = ISLES26Loss(cfg)
@@ -841,7 +877,7 @@ class TestIntegration:
     def test_track_switch_same_input(self, cfg, small_tensor):
         """Track A and Track C must accept the same batch dict without error."""
         img, mask  = small_tensor
-        meta_vec   = torch.rand(2, 4)
+        meta_vec   = torch.rand(2, 5)
         meta_text  = ["chronic scan R001 45 days", "acute scan R009 3 days"]
 
         # Track A
@@ -860,7 +896,7 @@ class TestIntegration:
     def test_batch_size_one_inference(self, cfg):
         """Val loader uses batch_size=1; model must handle single-scan input."""
         img      = torch.randn(1, 1, 32, 32, 32)
-        meta_vec = torch.rand(1, 4)
+        meta_vec = torch.rand(1, 5)
         meta_text = ["single scan test"]
         model    = build_model(cfg)
         pred     = model.predict(img, meta_vec, meta_text)

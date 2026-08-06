@@ -131,9 +131,9 @@ See `## Roadmap` below.
 ## Roadmap
 
 ### Phase 1 — Verification (current)
-- [ ] Fix CHRONICITY encoding: metadata_dim 4 → 5 in config.yaml and dataset.py
-- [ ] Run smoke tests on Kaggle (smoke_tests.ipynb) — all 60 tests must pass
-- [ ] Patch sub-r032s056 and sub-r032s027 in atlas_raw
+- [x] Fix CHRONICITY encoding: metadata_dim 4 → 5 in config.yaml and dataset.py
+- [ ] Run smoke tests on Kaggle (smoke_tests.ipynb) — all tests must pass
+- [ ] Patch sub-r032s056 and sub-r032s027 in atlas_raw using `patch_cases.py`
 - [ ] Re-run ingestion for v3.0 (1453 sessions), verify inventory assertions pass
 - [ ] Run preprocessing on full 1453 sessions
 - [ ] Generate and inspect 5-fold splits (--inspect flag)
