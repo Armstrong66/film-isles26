@@ -3,6 +3,7 @@
 *.nii
 *.tar.gz
 *.zip
+!isles26_train.zip
 logs/
 processed/
 
