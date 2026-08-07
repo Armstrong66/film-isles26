@@ -37,10 +37,8 @@ scikit-learn==1.5.0
 # panoptica (lesion-wise F1) — official ISLES26 metric
 #   pip install panoptica
 
-# ── Track C — LLM conditioning (optional, only needed for Track C) ───────────
-transformers==4.44.0
-accelerate==0.33.0
-sentencepiece==0.2.0
+# ── Track C — LLM conditioning (sentence-transformers for lightweight inference)
+sentence-transformers==3.0.1
 
 # ── Testing ───────────────────────────────────────────────────────────────────
 pytest==8.2.2

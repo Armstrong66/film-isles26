@@ -124,21 +124,17 @@ class LLMConditioner(BaseConditioner):
     """
     Track C — Language-grounded feature conditioning.
 
-    Passes a natural language metadata string through a frozen small LLM
-    and extracts the mean-pooled final hidden state as the conditioning signal.
+    Uses sentence-transformers (all-MiniLM-L6-v2) for lightweight embedding.
+    Still passes natural language metadata strings but uses a 22MB model
+    instead of Qwen2.5-1.5B, fitting comfortably in <1GB VRAM.
 
-    The LLM weights are frozen; only the projection head is trained.
-    This is memory-efficient and leverages pretraining without full fine-tuning.
-
-    Supported models (Kaggle/RTX compatible):
-        - Qwen/Qwen2.5-1.5B    (~3GB VRAM)
-        - microsoft/Phi-3-mini-4k-instruct (~7GB VRAM, better quality)
+    The sentence-transformer weights are frozen; only the projection head is trained.
     """
 
     def __init__(self, cfg_cond: DictConfig) -> None:
         llm_cfg    = cfg_cond.llm
         model_name = llm_cfg.model_name
-        embed_dim  = llm_cfg.embedding_dim   # LLM hidden size
+        embed_dim  = llm_cfg.embedding_dim   # SentenceTransformer output dim
         hidden_dim = llm_cfg.hidden_dim
 
         super().__init__(embed_dim=embed_dim, hidden_dim=hidden_dim)
@@ -146,7 +142,6 @@ class LLMConditioner(BaseConditioner):
         self.model_name  = model_name
         self.freeze_llm  = llm_cfg.freeze_llm
         self._llm        = None    # lazy load on first forward
-        self._tokenizer  = None
 
         log.info(
             f"LLMConditioner | model={model_name} "
@@ -154,22 +149,15 @@ class LLMConditioner(BaseConditioner):
         )
 
     def _load_llm(self, device: torch.device) -> None:
-        """Lazy-load LLM to avoid OOM at import time."""
-        from transformers import AutoTokenizer, AutoModel
-        log.info(f"Loading LLM: {self.model_name} ...")
-        self._tokenizer = AutoTokenizer.from_pretrained(
-            self.model_name, trust_remote_code=True
-        )
-        self._llm = AutoModel.from_pretrained(
-            self.model_name,
-            torch_dtype=torch.float16,
-            trust_remote_code=True,
-        ).to(device)
+        """Lazy-load sentence-transformer to avoid OOM at import time."""
+        from sentence_transformers import SentenceTransformer
+        log.info(f"Loading sentence-transformer: {self.model_name} ...")
+        self._llm = SentenceTransformer(self.model_name).to(device)
 
         if self.freeze_llm:
             for param in self._llm.parameters():
                 param.requires_grad = False
-            log.info("LLM weights frozen.")
+            log.info("LLM/sentence-transformer weights frozen.")
 
     def _encode(self, meta_vec: torch.Tensor, meta_text: list[str]) -> torch.Tensor:
         device = meta_vec.device
@@ -177,22 +165,14 @@ class LLMConditioner(BaseConditioner):
         if self._llm is None:
             self._load_llm(device)
 
-        # Tokenise
-        tokens = self._tokenizer(
-            meta_text,
-            return_tensors   = "pt",
-            padding          = True,
-            truncation       = True,
-            max_length       = 64,    # metadata strings are short
-        ).to(device)
-
-        # Forward through frozen LLM
+        # Encode text to embeddings
         with torch.no_grad() if self.freeze_llm else torch.enable_grad():
-            outputs = self._llm(**tokens, output_hidden_states=False)
-            # Mean-pool last hidden state over sequence length
-            hidden = outputs.last_hidden_state               # (B, seq, hidden)
-            attn   = tokens["attention_mask"].unsqueeze(-1)  # (B, seq, 1)
-            embed  = (hidden * attn).sum(1) / attn.sum(1)   # (B, hidden)
+            embed = self._llm.encode(
+                meta_text,
+                convert_to_tensor=True,
+                device=device,
+                show_progress_bar=False,
+            )
 
         return embed.float()   # cast back to float32 for projection
 

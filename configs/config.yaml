@@ -53,6 +53,9 @@ training:
   mixed_precision: true
   grad_clip:     1.0
 
+model:
+  size: "small"    # options: tiny | small | base
+
 loss:
   dice_weight:       1.0
   ce_weight:         1.0
@@ -62,17 +65,17 @@ loss:
 
 # Conditioning track — swapped via track config
 conditioning:
-  track: "A"                        # "A" = FiLM, "C" = LLM
+  track: "A"                        # "A" = FiLM, "C" = LLM (sentence-transformer)
   film:
     metadata_dim:   5               # [days_norm, chronicity_onehot(3), confirmed_chronic]
     hidden_dim:     64
     inject_at:      "bottleneck"    # where in decoder to inject
   llm:
-    model_name:     "Qwen/Qwen2.5-1.5B"
-    embedding_dim:  1536
-    hidden_dim:     256
+    model_name:     "all-MiniLM-L6-v2"
+    embedding_dim:  384             # sentence-transformer output dim
+    hidden_dim:     128             # projection hidden dim
     inject_at:      "bottleneck"
-    freeze_llm:     true            # LLM weights frozen; only projection trained
+    freeze_llm:     true            # sentence-transformer weights frozen
 
 tta:
   enabled: true

@@ -130,26 +130,33 @@ def apply_film(
     return g * x + b
 
 
+# Model size configurations (parameter count estimates)
+MODEL_CONFIGS = {
+    "tiny":  {"enc_ch": [1, 16, 32,  64,  128], "bottleneck": 160},  # ~3M params
+    "small": {"enc_ch": [1, 16, 32,  64,  128], "bottleneck": 256},  # ~6M params
+    "base":  {"enc_ch": [1, 32, 64, 128,  256], "bottleneck": 320},  # ~19M params
+}
+
+
 # ── Full model ────────────────────────────────────────────────────────────────
 
 class ISLES26Model(nn.Module):
     """
     3D U-Net with conditioning injection at the bottleneck.
 
-    Channel progression (nnU-Net full-res defaults for 128³ patches):
-        input  →  32 → 64 → 128 → 256 → 320 (bottleneck)
-        decoder: 320 → 256 → 128 → 64 → 32 → logits
-
     Deep supervision: segmentation heads at decoder scales 0-3.
     Conditioning: FiLM or LLM gate applied to bottleneck features.
-    """
 
-    ENCODER_CHANNELS = [1, 32, 64, 128, 256]
-    BOTTLENECK_CH    = 320
-    DEEP_SUP_WEIGHTS = [1.0, 0.5, 0.25, 0.125]   # coarse→fine, nnU-Net convention
+    Model size is configurable via cfg.model.size: "tiny" | "small" | "base"
+    """
 
     def __init__(self, cfg: DictConfig) -> None:
         super().__init__()
+
+        # Get model size config (default to "base" if not specified)
+        mc = MODEL_CONFIGS.get(cfg.model.get("size", "base"), MODEL_CONFIGS["base"])
+        self.ENCODER_CHANNELS = mc["enc_ch"]
+        self.BOTTLENECK_CH    = mc["bottleneck"]
 
         ch = self.ENCODER_CHANNELS
         bn = self.BOTTLENECK_CH

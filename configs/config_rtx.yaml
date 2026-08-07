@@ -48,6 +48,9 @@ training:
   mixed_precision: true
   grad_clip:     1.0
 
+model:
+  size: "small"    # options: tiny | small | base
+
 loss:
   dice_weight:       1.0
   ce_weight:         1.0
@@ -62,9 +65,9 @@ conditioning:
     hidden_dim:     64
     inject_at:      "bottleneck"
   llm:
-    model_name:     "Qwen/Qwen2.5-1.5B"
-    embedding_dim:  1536
-    hidden_dim:     256
+    model_name:     "all-MiniLM-L6-v2"
+    embedding_dim:  384
+    hidden_dim:     128
     inject_at:      "bottleneck"
     freeze_llm:     true
 
