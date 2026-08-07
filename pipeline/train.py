@@ -183,20 +183,28 @@ def run_epoch(
                     total_grad_norm = 0.0
                     for p in model.parameters():
                         if p.grad is not None:
-                            total_grad_norm += p.grad.data.norm(2).item()
+                            pn = p.grad.data.norm(2).item()
+                            if pn != pn:  # NaN check
+                                has_nan_grad = True
+                                continue
+                            elif pn == float('inf') or pn > 1e9:  # Cap extreme values
+                                pn = 1e9
+                            total_grad_norm += pn
                             if torch.isnan(p.grad).any():
                                 has_nan_grad = True
                     if has_nan_grad:
                         log.error("NaN gradient detected! Skipping batch.")
                         scaler.update()  # avoid overflow
                         continue
-                    # Log gradient norm occasionally for debugging
-                    if n_batches % 50 == 0:
-                        log.info(f"Grad norm: {total_grad_norm:.4f}")
+                    # Log gradient norm before and after clipping
+                    grad_norm_before = total_grad_norm
                     scaler.unscale_(optimizer)
-                    nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+                    grad_norm_after = nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
                     scaler.step(optimizer)
                     scaler.update()
+                    # Log gradient norm occasionally for debugging (use after-clipping value)
+                    if n_batches % 50 == 0:
+                        log.info(f"Grad norm: {grad_norm_after:.4f} (raw: {grad_norm_before:.4f})")
                 else:
                     loss.backward()
                     nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
@@ -330,11 +338,13 @@ def train_fold(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="ISLES26 Training")
-    parser.add_argument("--config", type=str, default="configs/config.yaml")
-    parser.add_argument("--fold",   type=str, default="0",
+    parser.add_argument("--config",   type=str, default="configs/config.yaml")
+    parser.add_argument("--fold",     type=str, default="0",
                         help="Fold index (0-4) or 'all'")
-    parser.add_argument("--track",  type=str, default=None,
+    parser.add_argument("--track",    type=str, default=None,
                         help="Override conditioning track: A or C")
+    parser.add_argument("--model-size", type=str, default=None,
+                        help="Model size variant: tiny, small, or base")
     args = parser.parse_args()
 
     cfg = OmegaConf.load(args.config)
@@ -342,6 +352,13 @@ def main() -> None:
     # Track override
     if args.track:
         cfg = OmegaConf.merge(cfg, {"conditioning": {"track": args.track.upper()}})
+
+    # Model size override
+    if args.model_size:
+        valid_sizes = ["tiny", "small", "base"]
+        if args.model_size.lower() not in valid_sizes:
+            raise ValueError(f"Invalid model-size '{args.model_size}'. Must be one of: {valid_sizes}")
+        cfg = OmegaConf.merge(cfg, {"model": {"size": args.model_size.lower()}})
 
     Path(cfg.logging.log_dir).mkdir(parents=True, exist_ok=True)
     logging.basicConfig(

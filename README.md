@@ -69,9 +69,10 @@ python pipeline/splits.py \
 ```bash
 # Train a single fold (Track A)
 python pipeline/train.py \
-    --config configs/config.yaml \
+    --config configs/config_rtx.yaml \
     --fold 0 \
-    --track A
+    --track A \
+    --model-size small  # tiny or base
 
 # Train all 5 folds
 python pipeline/train.py \
