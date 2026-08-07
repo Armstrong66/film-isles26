@@ -263,6 +263,12 @@ class PreprocessingPipeline:
                     working_link.symlink_to(self.out_dir, target_is_directory=True)
                 except (OSError, NotImplementedError):
                     pass  # Symlinks may not be available on all systems
+        else:
+            # Create all output directories for non-Kaggle paths (e.g., RTX)
+            self.out_dir.mkdir(parents=True, exist_ok=True)
+            self.out_img_dir.mkdir(parents=True, exist_ok=True)
+            self.out_mask_dir.mkdir(parents=True, exist_ok=True)
+            self.out_stats_dir.mkdir(parents=True, exist_ok=True)
 
     def _build_job_list(self, training_uids: set, overwrite: bool) -> list[tuple]:
         jobs = []
