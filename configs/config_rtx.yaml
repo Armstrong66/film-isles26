@@ -20,7 +20,8 @@ preprocessing:
   target_orientation: "RAS"
   normalization: "per_scan_zscore"
   clip_percentiles: [0.5, 99.5]
-  resample: false
+  target_shape: [160, 256, 256]      # FIXED: all scans resized for consistent batching
+  resample: true                    # FIXED: enable resampling
   num_workers: 8
 
 chronicity:

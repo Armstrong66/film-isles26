@@ -109,7 +109,7 @@ def resample_to_shape(
         target_shape: (H, W, D) target dimensions
 
     Returns:
-        (resampled_img, resampled_mask) as NIfTI images
+        (resampled_img, resampled_mask) as NIfTI images with exact target_shape
     """
     from scipy.ndimage import zoom
 
@@ -126,9 +126,31 @@ def resample_to_shape(
 
     # Resample image with bilinear interpolation
     img_resampled = zoom(img_data, zoom_factors, order=1, mode='constant', cval=0.0)
-
-    # Resample mask with nearest-neighbour interpolation (preserves labels)
     mask_resampled = zoom(mask_data, zoom_factors, order=0, mode='constant', cval=0.0)
+
+    # Post-process to ensure EXACT target shape (scipy.zoom may be off by 1 voxel)
+    def ensure_shape(data: np.ndarray, target: tuple[int, int, int]) -> np.ndarray:
+        """Pad or crop to exact target shape."""
+        current = data.shape
+        result = np.zeros(target, dtype=data.dtype)
+
+        # Calculate crop/pad bounds
+        z_min = max(0, (current[0] - target[0]) // 2)
+        y_min = max(0, (current[1] - target[1]) // 2)
+        x_min = max(0, (current[2] - target[2]) // 2)
+
+        z_max = min(current[0], target[0] + z_min)
+        y_max = min(current[1], target[1] + y_min)
+        x_max = min(current[2], target[2] + x_min)
+
+        # Crop or pad
+        result[:z_max-z_min, :y_max-y_min, :x_max-x_min] = data[
+            z_min:z_max, y_min:y_max, x_min:x_max
+        ]
+        return result
+
+    img_resampled = ensure_shape(img_resampled, target_shape)
+    mask_resampled = ensure_shape(mask_resampled, target_shape)
 
     # Create new affine matrix that preserves physical space
     # Scale the affine to maintain voxel-to-physical mapping
