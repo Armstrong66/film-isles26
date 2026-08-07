@@ -32,6 +32,9 @@ import re
 def flatten_images(root: Path, images_dir: str = "images", masks_dir: str = "masks") -> None:
     """
     Flatten ATLAS v3.0 nested structure into flat images/ and masks/ directories.
+
+    UID format matches metadata: site__subject__session
+    e.g., SOOP__sub-soop1650__ses-1
     """
     img_dest = root / images_dir
     mask_dest = root / masks_dir
@@ -50,10 +53,12 @@ def flatten_images(root: Path, images_dir: str = "images", masks_dir: str = "mas
         subject_part = parts[1]  # sub-soop1650
         session_part = parts[2]  # ses-1
 
-        # Build UID: sub-SITExxx_ses-1
-        uid = f"{subject_part}_{session_part}"
+        # Build UID matching metadata format: site__subject__session
+        # e.g., SOOP__sub-soop1650__ses-1
+        uid = f"{site}__{subject_part}__{session_part}"
 
-        # Create new filename
+        # Create new filename: uid_T1w.nii.gz
+        # e.g., SOOP__sub-soop1650__ses-1_T1w.nii.gz
         new_name = f"{uid}_T1w.nii.gz"
         dest_path = img_dest / new_name
 
@@ -62,9 +67,11 @@ def flatten_images(root: Path, images_dir: str = "images", masks_dir: str = "mas
         count += 1
 
         # Also look for corresponding mask
+        # Mask naming: uid_space-orig_label-lesion_desc-T1lesion_mask.nii.gz
         mask_name = f"{uid}_space-orig_label-lesion_desc-T1lesion_mask.nii.gz"
         mask_src = nii_file.parent / mask_name
         if mask_src.exists():
+            # Mask output: uid_rater1.nii.gz
             mask_dest_name = f"{uid}_rater1.nii.gz"
             shutil.copy2(mask_src, mask_dest / mask_dest_name)
 

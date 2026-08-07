@@ -273,6 +273,8 @@ class PreprocessingPipeline:
     def _build_job_list(self, training_uids: set, overwrite: bool) -> list[tuple]:
         jobs = []
         for img_path in sorted(self.img_dir.glob("*.nii.gz")):
+            # UID is the filename without _T1w.nii.gz
+            # Format: site__subject__session_T1w.nii.gz → uid = site__subject__session
             uid = img_path.name.replace("_T1w.nii.gz", "")
             if uid not in training_uids:
                 continue  # skip test-set scans
