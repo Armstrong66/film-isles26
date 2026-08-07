@@ -36,7 +36,7 @@ split:
   val_fold: 0
 
 training:
-  epochs:        1000
+  epochs:        50  # 1000
   batch_size:    2
   patch_size:    [128, 128, 128]
   optimizer:     "adamw"

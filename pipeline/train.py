@@ -55,6 +55,7 @@ def batch_dice(
     inter  = (probs * target).sum(dim=(1, 2, 3))
     union  = probs.sum(dim=(1, 2, 3)) + target.sum(dim=(1, 2, 3))
     dice   = (2 * inter + smooth) / (union + smooth)
+    dice = torch.nan_to_num(dice, nan=0.0)  # avoid NaN in dice
     return dice.mean().item()
 
 
@@ -143,6 +144,8 @@ def run_epoch(
         for batch in tqdm(loader, desc=f"Fold {fold} {desc}", leave=False):
             image     = batch["image"].to(device)
             mask      = batch["mask"].to(device)
+            # Ensure mask is binary (0 or 1) for loss computation
+            mask      = (mask > 0.5).float()
             meta_vec  = batch["meta_vec"].to(device)
             meta_text = batch["meta_text"]   # list of strings, stays on CPU
 
@@ -150,10 +153,30 @@ def run_epoch(
                 logits_list = model(image, meta_vec, meta_text)
                 loss, loss_dict = criterion(logits_list, mask.float())
 
+            # Check for NaN/Inf loss early to prevent gradient corruption
+            if torch.isnan(loss) or torch.isinf(loss):
+                log.error(f"Invalid loss detected! Skipping batch. loss={loss.item():.4f} Loss dict: {loss_dict}")
+                continue
+
             if is_train:
                 optimizer.zero_grad(set_to_none=True)
                 if scaler:
                     scaler.scale(loss).backward()
+                    # Check for NaN gradients before clipping
+                    has_nan_grad = False
+                    total_grad_norm = 0.0
+                    for p in model.parameters():
+                        if p.grad is not None:
+                            total_grad_norm += p.grad.data.norm(2).item()
+                            if torch.isnan(p.grad).any():
+                                has_nan_grad = True
+                    if has_nan_grad:
+                        log.error("NaN gradient detected! Skipping batch.")
+                        scaler.update()  # avoid overflow
+                        continue
+                    # Log gradient norm occasionally for debugging
+                    if n_batches % 50 == 0:
+                        log.info(f"Grad norm: {total_grad_norm:.4f}")
                     scaler.unscale_(optimizer)
                     nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
                     scaler.step(optimizer)

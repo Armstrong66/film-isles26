@@ -77,11 +77,16 @@ def encode_metadata_vector(
     Returns:
         FloatTensor of shape (5,)
     """
-    if days_post_stroke is None or np.isnan(float(days_post_stroke)):
-        days_norm = 0.5   # midpoint sentinel for unknown
-    else:
-        days_clipped = min(float(days_post_stroke), DAYS_MAX)
-        days_norm    = np.log1p(days_clipped) / np.log1p(DAYS_MAX)
+    # Handle None, NaN, negative, or invalid values
+    try:
+        days_float = float(days_post_stroke)
+        if np.isnan(days_float) or days_float < 0:
+            days_norm = 0.5   # sentinel for invalid/unknown
+        else:
+            days_clipped = min(days_float, DAYS_MAX)
+            days_norm    = np.log1p(days_clipped) / np.log1p(DAYS_MAX)
+    except (TypeError, ValueError):
+        days_norm = 0.5   # fallback for any conversion errors
 
     # One-hot from chronicity_derived (our primary signal)
     chron = chronicity_derived if chronicity_derived in CHRONICITY_TO_IDX else "unknown"
@@ -92,9 +97,16 @@ def encode_metadata_vector(
     ]
 
     # confirmed_chronic: only 1.0 when organizer says chronicity == 1.0
-    confirmed_chronic = 1.0 if chronicity_raw == 1.0 else 0.0
+    confirmed_chronic = 1.0 if chronicity_raw is not None and chronicity_raw == 1.0 else 0.0
 
-    return torch.tensor([days_norm] + one_hot + [confirmed_chronic], dtype=torch.float32)
+    meta_vec = torch.tensor([days_norm] + one_hot + [confirmed_chronic], dtype=torch.float32)
+
+    # Ensure no NaN values in metadata vector (would corrupt training)
+    if torch.isnan(meta_vec).any():
+        log.warning(f"NaN in meta_vec for days={days_post_stroke}, chronicity_raw={chronicity_raw}")
+        meta_vec = torch.nan_to_num(meta_vec, nan=0.0)
+
+    return meta_vec
 
 
 def encode_metadata_text(
