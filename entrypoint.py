@@ -184,7 +184,7 @@ def predict_single_scan(
 
     for fold, model in enumerate(models):
         with torch.no_grad():
-            with torch.cuda.amp.autocast(enabled=True):
+            with torch.cuda.amp.autocast(device_type=DEVICE.type, enabled=True):
                 logits_list = model(x, meta_vec, meta_text)
                 logits = logits_list[0]  # finest scale
 

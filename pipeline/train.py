@@ -144,7 +144,7 @@ def run_epoch(
             meta_vec  = batch["meta_vec"].to(device)
             meta_text = batch["meta_text"]   # list of strings, stays on CPU
 
-            with autocast(enabled=scaler is not None):
+            with autocast(device_type=device.type, enabled=scaler is not None):
                 logits_list = model(image, meta_vec, meta_text)
                 loss, loss_dict = criterion(logits_list, mask.float())
 

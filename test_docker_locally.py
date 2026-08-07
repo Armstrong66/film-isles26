@@ -101,7 +101,7 @@ def predict(model, x: torch.Tensor, meta_vec: torch.Tensor, meta_text: list, use
     device = x.device
 
     with torch.no_grad():
-        with torch.cuda.amp.autocast(enabled=True):
+        with torch.cuda.amp.autocast(device_type=device.type, enabled=True):
             logits_list = model(x, meta_vec, meta_text)
             logits = logits_list[0]  # finest scale
 
@@ -116,7 +116,7 @@ def predict(model, x: torch.Tensor, meta_vec: torch.Tensor, meta_text: list, use
         for axes in flip_axes:
             x_aug = torch.flip(x, dims=axes) if axes else x
             with torch.no_grad():
-                with torch.cuda.amp.autocast(enabled=True):
+                with torch.cuda.amp.autocast(device_type=device.type, enabled=True):
                     logits_aug = model(x_aug, meta_vec, meta_text)[0]
             probs_aug = torch.softmax(logits_aug, dim=1)
             prob_sum += torch.flip(probs_aug, dims=axes) if axes else probs_aug
