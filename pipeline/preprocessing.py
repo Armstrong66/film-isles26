@@ -272,21 +272,31 @@ class PreprocessingPipeline:
 
     def _build_job_list(self, training_uids: set, overwrite: bool) -> list[tuple]:
         jobs = []
+        # Debug: show some sample UIDs from training_uids
+        sample_uids = list(training_uids)[:3]
+        log.info(f"Training UID sample (first 3): {sample_uids}")
+        log.info(f"Training UID count: {len(training_uids)}")
+        log.info(f"Image dir: {self.img_dir}")
+        log.info(f"Mask dir: {self.mask_dir}")
+
         for img_path in sorted(self.img_dir.glob("*.nii.gz")):
             # UID is the filename without _T1w.nii.gz
             # Format: site__subject__session_T1w.nii.gz → uid = site__subject__session
             uid = img_path.name.replace("_T1w.nii.gz", "")
+            log.debug(f"Processing {img_path.name} -> UID: {uid}")
+
             if uid not in training_uids:
+                log.debug(f"  UID {uid} not in training set, skipping")
                 continue  # skip test-set scans
 
             mask_path  = self.mask_dir  / f"{uid}_rater1.nii.gz"
-            out_img    = self.out_img_dir   / f"{uid}_T1w.nii.gz"
-            out_mask   = self.out_mask_dir  / f"{uid}_mask.nii.gz"
-            out_stats  = self.out_stats_dir / f"{uid}.json"
-
             if not mask_path.exists():
                 log.warning(f"Mask missing for {uid} — skipping.")
                 continue
+
+            out_img    = self.out_img_dir   / f"{uid}_T1w.nii.gz"
+            out_mask   = self.out_mask_dir  / f"{uid}_mask.nii.gz"
+            out_stats  = self.out_stats_dir / f"{uid}.json"
 
             jobs.append((
                 uid, str(img_path), str(mask_path),

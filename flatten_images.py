@@ -15,9 +15,9 @@ ATLAS v3.0 structure:
 
 Flattened structure (for preprocessing):
     root/images/
-      sub-SITExxx_ses-1_T1w.nii.gz
+      site__sub-SITExxx_ses-1_T1w.nii.gz
     root/masks/
-      sub-SITExxx_ses-1_rater1.nii.gz
+      site__sub-SITExxx_ses-1_rater1.nii.gz
 
 Usage:
     python flatten_images.py --root /data/derrick/isles26/raw/ATLAS3_Training_Raw
@@ -32,9 +32,6 @@ import re
 def flatten_images(root: Path, images_dir: str = "images", masks_dir: str = "masks") -> None:
     """
     Flatten ATLAS v3.0 nested structure into flat images/ and masks/ directories.
-
-    UID format matches metadata: site__subject__session
-    e.g., SOOP__sub-soop1650__ses-1
     """
     img_dest = root / images_dir
     mask_dest = root / masks_dir
@@ -42,6 +39,9 @@ def flatten_images(root: Path, images_dir: str = "images", masks_dir: str = "mas
     mask_dest.mkdir(parents=True, exist_ok=True)
 
     count = 0
+    masks_found = 0
+    masks_missing = 0
+
     for nii_file in root.rglob("*_T1w.nii.gz"):
         # Extract path components
         # Example: SOOP/sub-soop1650/ses-1/anat/sub-soop1650_ses-1_space-orig_desc-brain_T1w.nii.gz
@@ -52,6 +52,7 @@ def flatten_images(root: Path, images_dir: str = "images", masks_dir: str = "mas
         site = parts[0]
         subject_part = parts[1]  # sub-soop1650
         session_part = parts[2]  # ses-1
+        file_name = nii_file.name  # sub-soop1650_ses-1_space-orig_desc-brain_T1w.nii.gz
 
         # Build UID matching metadata format: site__subject__session
         # e.g., SOOP__sub-soop1650__ses-1
@@ -67,16 +68,45 @@ def flatten_images(root: Path, images_dir: str = "images", masks_dir: str = "mas
         count += 1
 
         # Also look for corresponding mask
-        # Mask naming: uid_space-orig_label-lesion_desc-T1lesion_mask.nii.gz
-        mask_name = f"{uid}_space-orig_label-lesion_desc-T1lesion_mask.nii.gz"
+        # The mask uses the same base name pattern: subject_session
+        # Extract subject_session from file_name (e.g., "sub-soop1650_ses-1")
+        base_match = re.match(r"^(sub-[^_]+_ses-\d+)_", file_name)
+        if base_match:
+            base_name = base_match.group(1)  # sub-soop1650_ses-1
+            mask_name = f"{base_name}_space-orig_label-lesion_desc-T1lesion_mask.nii.gz"
+        else:
+            mask_name = file_name.replace("_T1w.nii.gz", "_label-lesion_mask.nii.gz")
+
         mask_src = nii_file.parent / mask_name
         if mask_src.exists():
             # Mask output: uid_rater1.nii.gz
             mask_dest_name = f"{uid}_rater1.nii.gz"
             shutil.copy2(mask_src, mask_dest / mask_dest_name)
+            masks_found += 1
+        else:
+            # Debug: log missing mask
+            print(f"  MASK NOT FOUND: {uid}")
+            print(f"    Expected at: {mask_src}")
+            print(f"    Mask filename pattern: {mask_name}")
+            masks_missing += 1
 
-    print(f"Flattened {count} images to {img_dest}")
-    print(f"Flattened masks to {mask_dest}")
+    # Validation
+    print(f"\n=== Flattening Complete ===")
+    print(f"Images copied:      {count}")
+    print(f"Masks found:        {masks_found}")
+    print(f"Masks missing:      {masks_missing}")
+
+    # Count output files
+    img_count = len(list(img_dest.glob("*.nii.gz")))
+    mask_count = len(list(mask_dest.glob("*.nii.gz")))
+    print(f"\nOutput summary:")
+    print(f"  Images: {img_dest} ({img_count} files)")
+    print(f"  Masks:  {mask_dest} ({mask_count} files)")
+
+    if img_count != mask_count:
+        print(f"\nWARNING: Image count ({img_count}) != Mask count ({mask_count})")
+    else:
+        print(f"\nOK: All {img_count} images have corresponding masks.")
 
 
 def main():
