@@ -9,7 +9,7 @@ This script is needed because the ATLAS v3.0 raw data stores metadata per-sessio
 but the preprocessing pipeline expects a single metadata/metadata.csv.
 
 Usage:
-    python generate_metadata_csv.py --root /data/derrick/isles26/raw/ATLAS3_Training_Raw --output metadata/metadata.csv
+    python generate_metadata_csv.py --root /data/derrick/isles26/raw/ATLAS3_Training_Raw --output /data/derrick/isles26/raw/ATLAS3_Training_Raw/metadata/metadata.csv
 """
 
 import argparse
@@ -28,7 +28,44 @@ def derive_chronicity(days):
     return "chronic"
 
 
-def aggregate_metadata(root: Path, output: Path) -> None:
+def find_raw_sessions(root: Path) -> set:
+    """
+    Find all session UIDs from raw image files (mirrors Kaggle's file-glob approach).
+    Returns set of UIDs like 'R001__sub-r001s001__ses-1'
+    """
+    import re
+
+    sessions = set()
+    # Match T1w image files: *space-orig_desc-brain_T1w.nii.gz
+    pattern = re.compile(r"(.*)_space-orig_desc-brain_T1w\.nii\.gz$")
+
+    for nii_file in root.rglob("*_T1w.nii.gz"):
+        # Extract site, subject, session from path
+        parts = nii_file.relative_to(root).parts
+        if len(parts) < 3:
+            continue
+
+        site = parts[0]
+        subject_part = parts[1] if len(parts) > 1 else None
+        session_part = parts[2] if len(parts) > 2 else None
+
+        if not subject_part or not session_part:
+            continue
+
+        # Extract subject and session from sub-XXX/ses-XXX
+        subject_match = re.search(r"sub-(\S+)", subject_part)
+        session_match = re.search(r"ses-(\S+)", session_part)
+
+        if subject_match and session_match:
+            subject = subject_match.group(1)
+            session = session_match.group(1)
+            uid = f"{site}__{subject}__{session}"
+            sessions.add(uid)
+
+    return sessions
+
+
+def aggregate_metadata(root: Path, output: Path, expected_total: int = None) -> None:
     """
     Aggregate per-session metadata CSVs into a master metadata.csv.
 
@@ -48,6 +85,7 @@ def aggregate_metadata(root: Path, output: Path) -> None:
         metadata.csv with columns: UID, DAYS_POST_STROKE, CHRONICITY, CHRONICITY_DERIVED, SITE, ATLAS2_DATASET
     """
     meta_records = []
+    raw_sessions = find_raw_sessions(root)
 
     # Find all per-session metadata CSVs
     for csv_file in sorted(root.rglob("*_metadata.csv")):
@@ -71,6 +109,10 @@ def aggregate_metadata(root: Path, output: Path) -> None:
 
             # Build UID: site__subject__session
             uid = f"{site}__{subject}__{session}"
+
+            # Verify this session exists in raw files
+            if uid not in raw_sessions:
+                print(f"  WARN: Metadata file found but no matching raw image: {uid}")
 
             # Get metadata values
             days = df["DAYS_POST_STROKE"].iloc[0] if "DAYS_POST_STROKE" in df.columns else None
@@ -121,6 +163,30 @@ def aggregate_metadata(root: Path, output: Path) -> None:
     print(f"\nSites:")
     print(df_meta["SITE"].value_counts().head(10))
 
+    # Validation against raw sessions
+    meta_sessions = set(df_meta["UID"])
+    matched = raw_sessions & meta_sessions
+    only_in_raw = raw_sessions - meta_sessions
+    only_in_meta = meta_sessions - raw_sessions
+
+    print(f"\n--- Validation ---")
+    print(f"Raw sessions from image files: {len(raw_sessions)}")
+    print(f"Metadata sessions: {len(meta_sessions)}")
+    print(f"Sessions in both: {len(matched)}")
+    print(f"Sessions in raw but not metadata: {len(only_in_raw)}")
+    print(f"Sessions in metadata but not raw: {len(only_in_meta)}")
+
+    if only_in_raw:
+        print(f"\nMissing metadata for:")
+        for uid in sorted(only_in_raw)[:10]:  # Show first 10
+            print(f"  - {uid}")
+
+    if expected_total is not None and len(df_meta) != expected_total:
+        print(f"\n--- NOTE ---")
+        print(f"Expected {expected_total} sessions but found {len(df_meta)}")
+        print(f"Difference: {expected_total - len(df_meta)} sessions")
+        print("Check the 'Missing metadata for' list above for details.")
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -148,7 +214,8 @@ def main():
         raise FileNotFoundError(f"Root directory not found: {root}")
 
     print(f"Aggregating metadata from: {root}")
-    aggregate_metadata(root, output)
+    # Expected total for ATLAS3 Training is 1453
+    aggregate_metadata(root, output, expected_total=1453)
 
 
 if __name__ == "__main__":
