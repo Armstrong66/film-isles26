@@ -4,9 +4,10 @@ preprocessing.py
 Converts raw ATLAS NIfTI images and masks into clean, normalised volumes
 ready for training. Applies:
   1. Reorientation → canonical RAS
-  2. Intensity clipping at configurable percentiles
-  3. Per-scan foreground z-score normalisation
-  4. Saves outputs as float32 NIfTI + a per-scan stats JSON sidecar
+  2. Spatial resampling to fixed target shape (for consistent batching)
+  3. Intensity clipping at configurable percentiles
+  4. Per-scan foreground z-score normalisation
+  5. Saves outputs as float32 NIfTI + a per-scan stats JSON sidecar
 
 Design:
   - Stateless functions: each takes paths/arrays, returns results
@@ -42,17 +43,19 @@ log = logging.getLogger(__name__)
 @dataclass
 class ScanStats:
     """Per-scan preprocessing statistics saved as JSON sidecar."""
-    uid:             str
+    uid:                  str
     original_orientation: str
-    reoriented:      bool
-    original_shape:  tuple
-    final_shape:     tuple
-    clip_low:        float
-    clip_high:       float
-    fg_mean:         float
-    fg_std:          float
-    fg_voxel_count:  int
-    lesion_voxels:   int
+    reoriented:           bool
+    original_shape:       tuple
+    resampled:            bool
+    target_shape:         tuple
+    final_shape:          tuple
+    clip_low:             float
+    clip_high:            float
+    fg_mean:              float
+    fg_std:               float
+    fg_voxel_count:       int
+    lesion_voxels:        int
 
 
 # ── Stateless transform functions ──────────────────────────────────────────────
@@ -89,6 +92,54 @@ def reorient_mask_to_ras(
 
     transform = nio.ornt_transform(current_ornt, target_ornt)
     return mask.as_reoriented(transform)
+
+
+def resample_to_shape(
+    img: nib.Nifti1Image,
+    mask: nib.Nifti1Image,
+    target_shape: tuple[int, int, int]
+) -> tuple[nib.Nifti1Image, nib.Nifti1Image]:
+    """
+    Resample image and mask to a fixed target shape using affine matrix.
+    Preserves the physical space by resampling according to the affine transform.
+
+    Args:
+        img: Input NIfTI image
+        mask: Input NIfTI mask (same shape as img)
+        target_shape: (H, W, D) target dimensions
+
+    Returns:
+        (resampled_img, resampled_mask) as NIfTI images
+    """
+    from scipy.ndimage import zoom
+
+    img_data = img.get_fdata(dtype=np.float32)
+    mask_data = mask.get_fdata(dtype=np.float32)
+
+    # Calculate zoom factors to reach target shape
+    img_shape = img_data.shape
+    zoom_factors = (
+        target_shape[0] / img_shape[0],
+        target_shape[1] / img_shape[1],
+        target_shape[2] / img_shape[2]
+    )
+
+    # Resample image with bilinear interpolation
+    img_resampled = zoom(img_data, zoom_factors, order=1, mode='constant', cval=0.0)
+
+    # Resample mask with nearest-neighbour interpolation (preserves labels)
+    mask_resampled = zoom(mask_data, zoom_factors, order=0, mode='constant', cval=0.0)
+
+    # Create new affine matrix that preserves physical space
+    # Scale the affine to maintain voxel-to-physical mapping
+    img_affine = img.affine.copy()
+    scale_factors = np.array(target_shape) / np.array(img_shape)
+    img_affine[:3, :3] = img_affine[:3, :3] @ np.diag(1.0 / scale_factors)
+
+    resampled_img = nib.Nifti1Image(img_resampled, img_affine, img.header)
+    resampled_mask = nib.Nifti1Image(mask_resampled.astype(np.uint8), img_affine, mask.header)
+
+    return resampled_img, resampled_mask
 
 
 def clip_and_normalise(
@@ -165,6 +216,16 @@ def process_one_scan(
     img_ras, was_reoriented = reorient_to_ras(img_nib)
     mask_ras = reorient_mask_to_ras(mask_nib, img_ras)
 
+    # ── Resample to fixed target shape ─────────────────────────────────────────
+    # (enabled via cfg_preproc.resample and cfg_preproc.target_shape)
+    if getattr(cfg_preproc, 'resample', False) and hasattr(cfg_preproc, 'target_shape'):
+        target_shape = tuple(cfg_preproc.target_shape)
+        img_ras, mask_ras = resample_to_shape(img_ras, mask_ras, target_shape)
+        resampled = True
+        log.debug(f"Resampled {uid} to {target_shape}")
+    else:
+        resampled = False
+
     # ── Normalise image ───────────────────────────────────────────────────────
     img_data = img_ras.get_fdata(dtype=np.float32)
 
@@ -197,6 +258,8 @@ def process_one_scan(
         original_orientation = original_ornt,
         reoriented           = was_reoriented,
         original_shape       = tuple(original_shape),
+        resampled            = resampled,
+        target_shape         = tuple(cfg_preproc.target_shape) if resampled else (),
         final_shape          = tuple(norm_data.shape),
         clip_low             = clip_low,
         clip_high            = clip_high,

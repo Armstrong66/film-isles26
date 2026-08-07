@@ -1,19 +1,21 @@
 """
 entrypoint.py
 -------------
-Docker entrypoint for ISLES26 submission.
+Docker entrypoint for ISLES26 submission (FastAPI Grand Challenge API).
 
-Inference pipeline (per organizer template):
-  1. Read input path from environment variable or fixed path
-  2. Load T1w NIfTI → reorient to RAS → clip/normalise (per-scan z-score)
-  3. Load all 5 fold checkpoints from /opt/algorithm/checkpoints/
-  4. Run forward pass on each fold model → average softmax probabilities
-  5. Apply 0.5 threshold → remove components < 10 voxels
-  6. Reorient output mask back to original input orientation
-  7. Save binary mask NIfTI at expected output path
+This implements the Grand Challenge algorithm API:
+- GET /health  — Health check endpoint
+- POST /invoke — Run inference on input image
+
+Input format (from Grand Challenge):
+  - /input/images/t1-brain-mri/*.nii.gz
+  - /input/stroke-metadata.json (optional)
+
+Output format (to Grand Challenge):
+  - /output/images/stroke-lesion-segmentation/output.mha
+  - /output/images/lesion-probability-map/output.mha (optional)
 
 Track A only for submission (Track C adds ~2-3 min overhead).
-
 Benchmark target: < 7 min total including model loading.
 """
 
@@ -23,13 +25,17 @@ import os
 import sys
 import time
 import logging
+import tempfile
 from pathlib import Path
+from typing import Optional
 
 import numpy as np
 import nibabel as nib
 import torch
-import torch.nn.functional as F
+from fastapi import FastAPI, Response
+from fastapi.responses import JSONResponse
 
+# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -37,11 +43,19 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-# ── Import our pipeline modules (copied into container) ────────────────────────
+# Import our pipeline modules (copied into container)
 from pipeline.preprocessing import reorient_to_ras, clip_and_normalise
 
+# ── FastAPI app ────────────────────────────────────────────────────────────────
+app = FastAPI(title="ISLES26 Algorithm", description="Automated stroke lesion segmentation")
 
-# ── Time tracking helper ────────────────────────────────────────────────────────
+# Global model state (loaded once at startup)
+MODELS: Optional[list[torch.nn.Module]] = None
+CFG: Optional[dict] = None
+DEVICE: torch.device = torch.device("cpu")
+
+
+# ── Time tracking helper ───────────────────────────────────────────────────────
 class Timer:
     """Simple timing helper for profiling the 10-min budget."""
 
@@ -59,9 +73,9 @@ class Timer:
         return e
 
 
-# ── Load model helper ──────────────────────────────────────────────────────────
+# ── Model loading helper ───────────────────────────────────────────────────────
 
-def load_fold_model(cfg, fold: int, device: torch.device) -> torch.nn.Module:
+def load_fold_model(cfg: dict, fold: int, device: torch.device) -> torch.nn.Module:
     """Load a single fold model from checkpoint."""
     from pipeline.model import build_model
 
@@ -79,17 +93,17 @@ def load_fold_model(cfg, fold: int, device: torch.device) -> torch.nn.Module:
     return model
 
 
-def load_all_folds(cfg, device: torch.device) -> list[torch.nn.Module]:
+def load_all_folds(cfg: dict, device: torch.device) -> list[torch.nn.Module]:
     """Load all 5 fold models at startup (not per-scan)."""
     timer = Timer("load_all_folds")
     models = []
     for fold in range(5):
         models.append(load_fold_model(cfg, fold, device))
-    timer.checkpoint("(all 5 folds loaded) ")
+    timer.checkpoint("(all 5 folds loaded)")
     return models
 
 
-# ── Preprocessing for inference ───────────────────────────────────────────────
+# ── Preprocessing for inference ────────────────────────────────────────────────
 
 def preprocess_inference(img_path: str) -> tuple[torch.Tensor, nib.Nifti1Image, dict]:
     """
@@ -140,7 +154,7 @@ def preprocess_inference(img_path: str) -> tuple[torch.Tensor, nib.Nifti1Image, 
 
     # Convert to tensor (B, C, H, W, D)
     tensor = torch.from_numpy(norm_data).unsqueeze(0).unsqueeze(0)  # (1, 1, H, W, D)
-    tensor = tensor.to(device=torch.device("cuda") if torch.cuda.is_available() else "cpu")
+    tensor = tensor.to(device=DEVICE)
 
     return tensor, img_nib, {
         "meta_vec": meta_vec.unsqueeze(0).to(tensor.device),
@@ -149,58 +163,7 @@ def preprocess_inference(img_path: str) -> tuple[torch.Tensor, nib.Nifti1Image, 
     }
 
 
-# ── Inference with TTA ─────────────────────────────────────────────────────────
-
-def predict_with_tta(
-    models: list[torch.nn.Module],
-    x: torch.Tensor,
-    meta_vec: torch.Tensor,
-    meta_text: list[str],
-    flip_axes: list[list[int]] = None
-) -> torch.Tensor:
-    """
-    Run inference with test-time augmentation (flips).
-    Average softmax probabilities across augmented versions.
-    """
-    if flip_axes is None:
-        flip_axes = [[], [0], [1], [2]]  # no flip + single axis flips
-
-    B, C, H, W, D = x.shape
-    device = x.device
-
-    # Accumulate probabilities
-    prob_sum = torch.zeros(B, 2, H, W, D, device=device)
-
-    for axes in flip_axes:
-        # Apply flip
-        x_aug = x
-        meta_vec_aug = meta_vec
-
-        if axes:
-            x_aug = torch.flip(x_aug, dims=axes)
-            # Flip metadata dimensions that encode spatial information
-            # days_norm is [0], is_chronic is [3], confirmed_chronic is [4]
-            # For simplicity, we don't flip metadata (clinical info is orientation-agnostic)
-
-        with torch.no_grad():
-            with torch.cuda.amp.autocast(enabled=True):
-                logits_list = model(x_aug, meta_vec_aug, meta_text)
-                logits = logits_list[0]  # finest scale only for inference
-
-        # Average probabilities
-        probs = torch.softmax(logits, dim=1)
-
-        # Reverse flip if applied
-        if axes:
-            probs = torch.flip(probs, dims=axes)
-
-        prob_sum += probs
-
-    # Average
-    avg_probs = prob_sum / len(flip_axes)
-
-    return avg_probs
-
+# ── Inference functions ────────────────────────────────────────────────────────
 
 def predict_single_scan(
     models: list[torch.nn.Module],
@@ -215,10 +178,9 @@ def predict_single_scan(
     timer = Timer("ensemble_inference")
 
     B, C, H, W, D = x.shape
-    device = x.device
 
     # Accumulate probabilities across folds
-    prob_sum = torch.zeros(B, 2, H, W, D, device=device)
+    prob_sum = torch.zeros(B, 2, H, W, D, device=DEVICE)
 
     for fold, model in enumerate(models):
         with torch.no_grad():
@@ -266,20 +228,16 @@ def remove_small_components(mask: np.ndarray, min_size: int) -> np.ndarray:
     return output
 
 
-# ── Reorient back to original ──────────────────────────────────────────────────
-
 def reorient_back_to_original(
     mask: np.ndarray,
     original_nib: nib.Nifti1Image,
-    metadata: dict
+    original_ornt: str
 ) -> nib.Nifti1Image:
     """Reorient mask back to original input orientation."""
-    from pipeline.preprocessing import reorient_mask_to_ras
-
     current_ornt = nib.aff2axcodes(original_nib.affine)
 
-    # If original was not RAS, we need to reorient
-    if metadata.get("was_reoriented", False):
+    # If original was not RAS, we need to reorient back
+    if original_ornt != "RAS":
         # Create temporary image with current mask
         temp_nib = nib.Nifti1Image(mask, original_nib.affine, original_nib.header)
 
@@ -296,58 +254,214 @@ def reorient_back_to_original(
     return nib.Nifti1Image(mask, original_nib.affine, original_nib.header)
 
 
-# ── Main entrypoint ────────────────────────────────────────────────────────────
+def write_nifti_as_mha(nib_img: nib.Nifti1Image, output_path: Path) -> None:
+    """Convert NIfTI to MHA format for Grand Challenge output."""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
 
-def main():
-    """Docker entrypoint - runs inference on input and writes output."""
+    # Get array data
+    array = nib_img.get_fdata()
+
+    # Create SimpleITK image
+    import SimpleITK as sitk
+    sitk_img = sitk.GetImageFromArray(array)
+    sitk_img.SetSpacing(nib_img.header.get_zooms()[:3])
+    sitk_img.SetOrigin(nib_img.affine[:3, 3].tolist())
+    sitk_img.SetDirection(nib_img.affine[:3, :3].flatten().tolist())
+
+    # Save as MHA
+    output_path = output_path.with_suffix(".mha")
+    sitk.WriteImage(sitk_img, str(output_path), useCompression=True)
+    log.info(f"Output saved: {output_path}")
+
+
+# ── Input/Output helpers for Grand Challenge format ────────────────────────────
+
+def find_input_file() -> Path:
+    """Find input T1w image in Grand Challenge format."""
+    input_dir = Path("/input/images/t1-brain-mri")
+    if input_dir.exists():
+        # Find nii.gz files
+        nii_files = list(input_dir.glob("*.nii.gz")) + list(input_dir.glob("*.nii"))
+        if nii_files:
+            return nii_files[0]
+
+    # Fallback: check /input directly
+    fallback_dir = Path("/input")
+    fallback_files = list(fallback_dir.glob("*.nii.gz")) + list(fallback_dir.glob("*.nii"))
+    if fallback_files:
+        return fallback_files[0]
+
+    raise FileNotFoundError("No input image found in /input/images/t1-brain-mri/")
+
+
+def get_output_path() -> Path:
+    """Get output path for Grand Challenge format."""
+    return Path("/output/images/stroke-lesion-segmentation/output.mha")
+
+
+def get_metadata() -> Optional[dict]:
+    """Load optional metadata from Grand Challenge."""
+    metadata_path = Path("/input/stroke-metadata.json")
+    if metadata_path.exists():
+        import json
+        with open(metadata_path) as f:
+            return json.load(f)
+    return None
+
+
+# ── API endpoints ──────────────────────────────────────────────────────────────
+
+@app.get("/health")
+async def health():
+    """Health check endpoint - returns 200 if models are loaded."""
+    if MODELS is None:
+        return JSONResponse(status_code=503, content={"status": "not_loaded"})
+    return Response(status_code=200)
+
+
+@app.post("/invoke")
+async def invoke():
+    """Run inference on input image and write output."""
+    global MODELS, CFG, DEVICE
+
+    timer = Timer("invoke")
+
+    # Check models are loaded
+    if MODELS is None:
+        log.error("Models not loaded!")
+        return JSONResponse(status_code=503, content={"status": "model_not_loaded"})
+
+    log.info("=" * 60)
+    log.info("ISLES26 Docker Inference /invoke")
+    log.info("=" * 60)
+
+    try:
+        # Find input file
+        input_path = find_input_file()
+        log.info(f"Input: {input_path}")
+
+        # Load config
+        cfg_path = Path("/opt/algorithm/configs/config.yaml")
+        if not cfg_path.exists():
+            cfg_path = Path("/opt/algorithm/config.yaml")
+
+        if CFG is None:
+            from omegaconf import OmegaConf
+            CFG = OmegaConf.to_container(OmegaConf.load(cfg_path), resolve=True)
+            log.info(f"Config loaded: {cfg_path}")
+
+        # Preprocess
+        x, original_nib, metadata = preprocess_inference(str(input_path))
+        log.info(f"Input shape: {x.shape}")
+
+        # Run prediction
+        mask = predict_single_scan(
+            MODELS,
+            x,
+            metadata["meta_vec"],
+            metadata["meta_text"],
+        )
+        log.info(f"Predicted mask shape: {mask.shape}, non-zero voxels: {mask.sum()}")
+
+        # Reorient back if needed
+        output_nib = reorient_back_to_original(mask, original_nib, metadata["original_ornt"])
+
+        # Write output in MHA format
+        output_path = get_output_path()
+        write_nifti_as_mha(output_nib, output_path)
+
+        # Verify output geometry matches input
+        assert output_nib.shape == original_nib.shape, "Output shape mismatch!"
+        assert np.allclose(output_nib.affine, original_nib.affine), "Output affine mismatch!"
+
+        # Check output dtype is uint8 with binary values
+        output_data = output_nib.get_fdata()
+        unique_vals = np.unique(output_data)
+        assert set(unique_vals).issubset({0.0, 1.0}), f"Non-binary values found: {unique_vals}"
+
+        total_time = timer.elapsed()
+        log.info(f"Total inference time: {total_time:.2f}s")
+
+        # Log summary
+        log.info("=" * 60)
+        log.info("Inference complete!")
+        log.info(f"  Input:  {input_path}")
+        log.info(f"  Output: {output_path}")
+        log.info(f"  Mask size: {mask.sum()} voxels ({mask.sum() * np.prod(metadata['spacing']) / 1000:.2f} mL)")
+        log.info(f"  Time: {total_time:.2f}s")
+        log.info("=" * 60)
+
+        return Response(status_code=201, content={"status": "success"})
+
+    except Exception as e:
+        log.error(f"Inference failed: {e}", exc_info=True)
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+
+
+# ── Lifespan: load models once at startup ─────────────────────────────────────
+
+@app.on_event("startup")
+async def startup_event():
+    """Load models once at container startup."""
+    global MODELS, CFG, DEVICE
+
+    log.info("Loading models at startup...")
+
+    # Set device
+    DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    log.info(f"Using device: {DEVICE}")
+
+    # Load config
+    cfg_path = Path("/opt/algorithm/configs/config.yaml")
+    if not cfg_path.exists():
+        cfg_path = Path("/opt/algorithm/config.yaml")
+
+    from omegaconf import OmegaConf
+    CFG = OmegaConf.to_container(OmegaConf.load(cfg_path), resolve=True)
+    log.info(f"Config loaded: {cfg_path}")
+
+    # Load all fold models
+    MODELS = load_all_folds(CFG, DEVICE)
+
+    log.info("Models loaded successfully!")
+
+
+# ── CLI mode (for local testing) ───────────────────────────────────────────────
+
+def main_cli():
+    """CLI mode for local testing (not used by Docker)."""
     start = time.time()
     global_timer = Timer("docker_inference")
 
-    # Setup logging
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(message)s",
-        datefmt="%H:%M:%S",
-    )
-
     log.info("=" * 60)
-    log.info("ISLES26 Docker Inference")
+    log.info("ISLES26 Docker Inference (CLI mode)")
     log.info("=" * 60)
 
-    # Determine paths (per organizer template)
-    input_path = os.environ.get("ISLES26_INPUT_PATH", "/input/image.nii.gz")
-    output_path = os.environ.get("ISLES26_OUTPUT_PATH", "/output/mask.nii.gz")
+    # Find input
+    input_path = find_input_file()
+    output_path = get_output_path()
 
     log.info(f"Input:  {input_path}")
     log.info(f"Output: {output_path}")
 
-    # Check input exists
-    if not os.path.exists(input_path):
-        log.error(f"Input file not found: {input_path}")
-        sys.exit(1)
-
-    # Create output directory
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-
     # Load config
-    from omegaconf import OmegaConf
-    cfg_path = "/opt/algorithm/configs/config.yaml"
-    if not os.path.exists(cfg_path):
-        # Fallback to bundled config
-        cfg_path = "/opt/algorithm/config.yaml"
-    cfg = OmegaConf.load(cfg_path)
+    cfg_path = Path("/opt/algorithm/configs/config.yaml")
+    if not cfg_path.exists():
+        cfg_path = Path("/opt/algorithm/config.yaml")
 
+    from omegaconf import OmegaConf
+    cfg = OmegaConf.to_container(OmegaConf.load(cfg_path), resolve=True)
     log.info(f"Config loaded: {cfg_path}")
 
     # Set device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     log.info(f"Using device: {device}")
 
-    # Load all fold models (once at startup)
+    # Load all fold models
     models = load_all_folds(cfg, device)
 
     # Preprocess input
-    x, original_nib, metadata = preprocess_inference(input_path)
+    x, original_nib, metadata = preprocess_inference(str(input_path))
     log.info(f"Input shape: {x.shape}")
 
     # Run prediction
@@ -360,11 +474,10 @@ def main():
     log.info(f"Predicted mask shape: {mask.shape}, non-zero voxels: {mask.sum()}")
 
     # Reorient back if needed
-    output_nib = reorient_back_to_original(mask, original_nib, metadata)
+    output_nib = reorient_back_to_original(mask, original_nib, metadata["original_ornt"])
 
-    # Save output
-    nib.save(output_nib, output_path)
-    log.info(f"Output saved: {output_path}")
+    # Write output
+    write_nifti_as_mha(output_nib, output_path)
 
     # Verify output geometry matches input
     assert output_nib.shape == original_nib.shape, "Output shape mismatch!"
@@ -391,4 +504,4 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main_cli()

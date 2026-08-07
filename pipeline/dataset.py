@@ -294,4 +294,35 @@ def build_dataloaders(
         pin_memory  = True,
     )
 
+    # ── Custom collate function to handle shape mismatches gracefully ─────────
+    def collate_fn(batch):
+        """Collate function that checks for shape consistency."""
+        first_shape = batch[0]["image"].shape
+        for i, item in enumerate(batch):
+            if item["image"].shape != first_shape:
+                raise RuntimeError(
+                    f"Shape mismatch at index {i}: got {item['image'].shape}, "
+                    f"expected {first_shape}. "
+                    f"Run preprocessing with resample=True to fix this."
+                )
+        return torch.utils.data.default_collate(batch)
+
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size  = cfg.training.batch_size,
+        shuffle     = True,
+        num_workers = cfg.preprocessing.num_workers,
+        pin_memory  = True,
+        drop_last   = True,
+        collate_fn  = collate_fn,
+    )
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size  = 1,        # always 1 for validation (variable scan sizes)
+        shuffle     = False,
+        num_workers = cfg.preprocessing.num_workers,
+        pin_memory  = True,
+        collate_fn  = collate_fn,
+    )
+
     return train_loader, val_loader

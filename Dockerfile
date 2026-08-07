@@ -20,38 +20,37 @@ RUN pip install --no-cache-dir \
     pandas==2.2.2 \
     scipy==1.14.1 \
     tqdm==4.66.4 \
+    fastapi==0.115.0 \
+    uvicorn==0.30.1 \
+    SimpleITK==2.4.0 \
     && pip install --no-cache-dir \
     transformers==4.44.2 \
     torchmetrics==1.4.0
 
 # Copy pipeline modules (inference only - no training code)
-COPY pipeline/model.py pipeline/conditioning.py pipeline/preprocessing.py pipeline/augmentation.py ./pipeline/
+COPY pipeline/ ./pipeline/
 COPY utils/ /opt/algorithm/utils/
-COPY pipeline/__init__.py pipeline/conditioning.py pipeline/model.py pipeline/preprocessing.py ./pipeline/
-
-# Copy config
-COPY configs/config.yaml /opt/algorithm/configs/
+COPY configs/ /opt/algorithm/configs/
 
 # Copy entrypoint
 COPY entrypoint.py /opt/algorithm/
 
+# Create checkpoints directory (mount at runtime)
+RUN mkdir -p /opt/algorithm/checkpoints
+
 # Set environment variables
-ENV ISLES26_INPUT_PATH=/input/image.nii.gz
-ENV ISLES26_OUTPUT_PATH=/output/mask.nii.gz
-ENV CUDA_VISIBLE_DEVICES=0
-ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
 
 # Set NVIDIA runtime options
 ENV NVIDIA_VISIBLE_DEVICES=all
 ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
 
 # Create input/output directories (for Grand Challenge)
-RUN mkdir -p /input /output
+RUN mkdir -p /input/images/t1-brain-mri /output/images/stroke-lesion-segmentation
 
-# Default entrypoint
-ENTRYPOINT ["python", "/opt/algorithm/entrypoint.py"]
+# Expose port for Grand Challenge API
+EXPOSE 4743
 
-# Health check (for long-running jobs)
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD python -c "import torch; print('OK')" || exit 1
+# Default entrypoint - runs FastAPI server
+CMD ["python", "entrypoint.py"]

@@ -23,7 +23,8 @@ preprocessing:
   target_orientation: "RAS"          # canonical orientation
   normalization: "per_scan_zscore"   # confirmed by EDA (inter-site CV=1.453)
   clip_percentiles: [0.5, 99.5]      # clip before z-score
-  resample: false                    # spacing already isotropic 1mm³
+  target_shape: [160, 256, 256]      # (H, W, D) for consistent batching
+  resample: true                     # enable resampling to target_shape
   num_workers: 4
 
 chronicity:

@@ -328,23 +328,44 @@ print('Geometry check passed!')
 
 Before building Docker, test locally on your RTX workstation:
 
+#### Option 1: Using FastAPI server (recommended)
+
 ```bash
 # Install dependencies
-pip install nibabel monai omegaconf scipy scikit-learn
+pip install fastapi uvicorn nibabel monai omegaconf scipy scikit-learn simpleitk
 
-# Run local test (assumes checkpoints exist)
-python test_docker_locally.py \
-    --input /path/to/test_scan.nii.gz \
-    --output /path/to/test_output.nii.gz \
-    --checkpoint /path/to/checkpoint/fold_0_best.pth \
-    --no-tta
+# Start FastAPI server (runs on port 4743)
+uvicorn entrypoint:app --host 0.0.0.0 --port 4743 --reload
+```
+
+#### Option 2: CLI mode (for quick testing)
+
+```bash
+# Run inference directly (assumes checkpoints exist)
+python entrypoint.py
 ```
 
 **Expected timing on RTX 3090:**
-- Model loading: ~10-15s
+- Model loading: ~10-15s (one-time at startup)
 - Preprocessing: ~5-10s
 - Inference (no TTA): ~3-5s
 - Total: < 30s per scan (well under 10-min limit)
+
+#### Testing on Grand Challenge Input Format
+
+To test with the Grand Challenge input format:
+```bash
+# Create test input directory structure
+mkdir -p /tmp/isles_test/input/images/t1-brain-mri
+cp /path/to/test_scan.nii.gz /tmp/isles_test/input/images/t1-brain-mri/
+
+# Run with Docker (CPU first!)
+docker run --rm \
+  -v /tmp/isles_test/input:/input \
+  -v /tmp/isles_test/output:/output \
+  -v /path/to/checkpoints:/opt/algorithm/checkpoints \
+  isles26-submission
+```
 
 ### Dockerfile Customization
 
