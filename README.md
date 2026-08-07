@@ -92,6 +92,49 @@ python pipeline/evaluate.py \
 
 ---
 
+## Running Long Jobs on RTX (nohup + GPU detection)
+
+For overnight training runs that survive network disconnections:
+
+```bash
+# Use the run_job.sh helper script (auto-detects GPU, creates logs)
+./scripts/run_job.sh preprocess --name preproc_rtx
+./scripts/run_job.sh train --fold all --track A --name train_all_folds
+./scripts/run_job.sh evaluate --fold all --tta --name eval_all_tta
+
+# Run locally for testing (without nohup)
+./scripts/run_job.sh train --fold 0 --local --name train_fold0_test
+
+# Monitor logs
+tail -f /data/derrick/isles26/logs/train_all_folds.log
+
+# Check running jobs
+ps aux | grep train_all_folds
+```
+
+**Job types:**
+- `preprocess` — Run preprocessing pipeline
+- `splits` — Generate CV splits
+- `train` — Train model (add `--fold all` for all 5 folds)
+- `evaluate` — Evaluate with TTA
+
+**Options:**
+- `--name <job_name>` — Custom log file name
+- `--fold <n|all>` — Which fold(s) to train
+- `--track <A|C>` — Which conditioning track
+- `--workers <n>` — Number of parallel workers
+- `--tta` — Enable test-time augmentation
+- `--local` — Run without nohup (for testing)
+
+**GPU auto-detection (RTX with 2 GPUs):**
+- Always picks the least busy GPU (0 or 1) based on memory + utilization
+- Never defaults to CPU mode - only GPU 0 or GPU 1
+- If queries fail, defaults to GPU 0
+
+See `scripts/run_job.sh --help` for full usage.
+
+---
+
 ## Repository Structure
 
 ```
