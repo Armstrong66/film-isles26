@@ -110,9 +110,25 @@ def load_checkpoint(
     path:  Path,
     model: nn.Module,
     optim: torch.optim.Optimizer | None = None,
+    strict: bool = True,
 ) -> dict:
+    """Load checkpoint with optional strict mode for model size mismatches."""
     ckpt = torch.load(path, map_location="cpu")
-    model.load_state_dict(ckpt["model_state"])
+
+    # If strict=False, only load matching keys
+    if not strict:
+        model_state = model.state_dict()
+        loaded_state = ckpt["model_state"]
+        # Filter to only matching keys
+        matching = {k: v for k, v in loaded_state.items() if k in model_state and v.shape == model_state[k].shape}
+        # Report mismatched keys
+        mismatched = set(loaded_state.keys()) - set(matching.keys())
+        if mismatched:
+            log.info(f"Skipping {len(mismatched)} mismatched keys (likely due to model size change)")
+        model.load_state_dict(matching, strict=False)
+    else:
+        model.load_state_dict(ckpt["model_state"])
+
     if optim is not None and "optim_state" in ckpt:
         optim.load_state_dict(ckpt["optim_state"])
     log.info(f"Checkpoint loaded: {path.name}  (epoch={ckpt['epoch']})")
@@ -251,7 +267,8 @@ def train_fold(
     history      = []
 
     if last_ckpt.exists():
-        metrics = load_checkpoint(last_ckpt, model, optimizer)
+        # Use strict=False to handle model size changes (e.g., tiny/small/base)
+        metrics = load_checkpoint(last_ckpt, model, optimizer, strict=False)
         start_epoch   = metrics.get("epoch", 0) + 1
         best_val_dice = metrics.get("best_val_dice", -1.0)
         log.info(f"Resuming from epoch {start_epoch}")
