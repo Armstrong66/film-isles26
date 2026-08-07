@@ -94,9 +94,11 @@ def save_checkpoint(
     optim:   torch.optim.Optimizer,
     metrics: dict,
 ) -> None:
+    # Unwrap DataParallel model for saving
+    state_dict = model.module.state_dict() if hasattr(model, "module") else model.state_dict()
     torch.save({
         "epoch":       epoch,
-        "model_state": model.state_dict(),
+        "model_state": state_dict,
         "optim_state": optim.state_dict(),
         "metrics":     metrics,
     }, path)
@@ -193,6 +195,12 @@ def train_fold(
 
     # ── Model, loss, optimizer ────────────────────────────────────────────────
     model     = build_model(cfg).to(device)
+
+    # DataParallel for multi-GPU support (simple, sufficient for 2 GPUs)
+    if torch.cuda.device_count() > 1:
+        log.info(f"Using {torch.cuda.device_count()} GPUs via DataParallel")
+        model = torch.nn.DataParallel(model)
+
     criterion = ISLES26Loss(cfg).to(device)
     optimizer = torch.optim.AdamW(
         model.parameters(),

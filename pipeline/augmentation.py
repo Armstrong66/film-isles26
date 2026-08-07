@@ -32,6 +32,7 @@ from monai.transforms import (
     RandShiftIntensityd,
     RandAdjustContrastd,
     RandZoomd,
+    RandSpatialCropd,
     EnsureTyped,
     ToTensord,
 )
@@ -122,8 +123,21 @@ class ChronicCavityPerturbation(MapTransform):
 
 # ── Standard spatial and intensity transforms ─────────────────────────────────
 
-def _spatial_transforms(prob: float = 0.5) -> list:
-    return [
+def _spatial_transforms(prob: float = 0.5, patch_size: list[int] = None) -> list:
+    """If patch_size is provided, crop to fixed size as first transform."""
+    transforms = []
+
+    # Crop to fixed patch size first (ensures consistent shapes for batching)
+    if patch_size is not None:
+        transforms.append(
+            RandSpatialCropd(
+                keys=["image", "mask"],
+                roi_size=patch_size,
+                random_size=False,
+            )
+        )
+
+    transforms.extend([
         RandFlipd(keys=["image", "mask"], prob=0.5, spatial_axis=0),
         RandFlipd(keys=["image", "mask"], prob=0.5, spatial_axis=1),
         RandFlipd(keys=["image", "mask"], prob=0.5, spatial_axis=2),
@@ -144,7 +158,8 @@ def _spatial_transforms(prob: float = 0.5) -> list:
             max_zoom=1.15,
             mode=("trilinear", "nearest"),
         ),
-    ]
+    ])
+    return transforms
 
 
 def _intensity_transforms() -> list:
@@ -163,15 +178,16 @@ def _intensity_transforms() -> list:
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
-def get_train_transforms(chronicity: str) -> Compose:
+def get_train_transforms(chronicity: str, patch_size: list[int] = None) -> Compose:
     """
     Returns a MONAI Compose pipeline tailored to the chronicity class.
     chronicity: one of 'acute', 'subacute', 'chronic', 'unknown'
+    patch_size: if provided, crop to fixed size first (ensures consistent shapes)
     """
     transforms = [EnsureTyped(keys=["image", "mask"], track_meta=False)]
 
     # Spatial transforms (same for all classes)
-    transforms.extend(_spatial_transforms(prob=0.5))
+    transforms.extend(_spatial_transforms(prob=0.5, patch_size=patch_size))
 
     # Standard intensity transforms (all classes)
     transforms.extend(_intensity_transforms())
@@ -191,9 +207,22 @@ def get_train_transforms(chronicity: str) -> Compose:
     return Compose(transforms)
 
 
-def get_val_transforms() -> Compose:
-    """Validation: no augmentation, just type enforcement."""
-    return Compose([
-        EnsureTyped(keys=["image", "mask"], track_meta=False),
-        ToTensord(keys=["image", "mask"]),
-    ])
+def get_val_transforms(patch_size: list[int] = None) -> Compose:
+    """
+    Validation transforms - no augmentation, just type enforcement and optional crop.
+    Note: For inference, sliding window is used, but we crop to consistent size here.
+    """
+    transforms = [EnsureTyped(keys=["image", "mask"], track_meta=False)]
+
+    # Crop to fixed size if specified
+    if patch_size is not None:
+        transforms.append(
+            RandSpatialCropd(
+                keys=["image", "mask"],
+                roi_size=patch_size,
+                random_size=False,
+            )
+        )
+
+    transforms.append(ToTensord(keys=["image", "mask"]))
+    return Compose(transforms)

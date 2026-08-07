@@ -99,7 +99,23 @@ For overnight training runs that survive network disconnections:
 ```bash
 # Use the run_job.sh helper script (auto-detects GPU, creates logs)
 ./scripts/run_job.sh preprocess --name preproc_rtx
+nohup bash /path/to/film-isles26/scripts/run_job.sh python pipeline/preprocessing.py --config configs/config_rtx.yaml --workers 8 --name preprocess > /dev/null 2>&1 &
+nohup python pipeline/preprocessing.py --config configs/config_rtx.yaml --workers 8 > /data/derrick/isles26/logs/preprocess.log 2>&1 &
+
 ./scripts/run_job.sh train --fold all --track A --name train_all_folds
+nohup python pipeline/train.py \
+    --config configs/config_rtx.yaml \
+    --fold all \
+    --track A \
+    > /data/derrick/isles26/logs/train_trackA.log 2>&1 &
+
+nohup python pipeline/train.py \
+    --config configs/config_rtx.yaml \
+    --fold all \
+    --track C \
+    > /data/derrick/isles26/logs/train_trackC.log 2>&1 &
+
+
 ./scripts/run_job.sh evaluate --fold all --tta --name eval_all_tta
 
 # Run locally for testing (without nohup)
@@ -110,6 +126,20 @@ tail -f /data/derrick/isles26/logs/train_all_folds.log
 
 # Check running jobs
 ps aux | grep train_all_folds
+
+# Check running jobs
+ps aux | grep python
+
+# View logs
+tail -f /data/derrick/isles26/logs/train_trackA.log
+
+# Check GPU usage
+watch -n 5 nvidia-smi
+
+To run locally (without nohup) for testing:
+
+# Auto-detect GPU and set CUDA_VISIBLE_DEVICES
+source /path/to/film-isles26/scripts/run_job.sh python pipeline/train.py --config configs/config_rtx.yaml --fold all --track A
 ```
 
 **Job types:**

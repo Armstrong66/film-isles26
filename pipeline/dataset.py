@@ -272,11 +272,11 @@ def build_dataloaders(
         subset = [r for r in train_records if r["chronicity"] == chron]
         if subset:
             train_datasets.append(
-                ISLES26Dataset(subset, get_train_transforms(chron), is_train=True)
+                ISLES26Dataset(subset, get_train_transforms(chron, cfg.training.patch_size), is_train=True)
             )
 
     train_dataset = ConcatDataset(train_datasets)
-    val_dataset   = ISLES26Dataset(val_records, get_val_transforms(), is_train=False)
+    val_dataset   = ISLES26Dataset(val_records, get_val_transforms(cfg.training.patch_size), is_train=False)
 
     train_loader = DataLoader(
         train_dataset,
@@ -288,41 +288,10 @@ def build_dataloaders(
     )
     val_loader = DataLoader(
         val_dataset,
-        batch_size  = 1,        # always 1 for validation (variable scan sizes)
+        batch_size  = 1,        # always 1 for validation
         shuffle     = False,
         num_workers = cfg.preprocessing.num_workers,
         pin_memory  = True,
-    )
-
-    # ── Custom collate function to handle shape mismatches gracefully ─────────
-    def collate_fn(batch):
-        """Collate function that checks for shape consistency."""
-        first_shape = batch[0]["image"].shape
-        for i, item in enumerate(batch):
-            if item["image"].shape != first_shape:
-                raise RuntimeError(
-                    f"Shape mismatch at index {i}: got {item['image'].shape}, "
-                    f"expected {first_shape}. "
-                    f"Run preprocessing with resample=True to fix this."
-                )
-        return torch.utils.data.default_collate(batch)
-
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size  = cfg.training.batch_size,
-        shuffle     = True,
-        num_workers = cfg.preprocessing.num_workers,
-        pin_memory  = True,
-        drop_last   = True,
-        collate_fn  = collate_fn,
-    )
-    val_loader = DataLoader(
-        val_dataset,
-        batch_size  = 1,        # always 1 for validation (variable scan sizes)
-        shuffle     = False,
-        num_workers = cfg.preprocessing.num_workers,
-        pin_memory  = True,
-        collate_fn  = collate_fn,
     )
 
     return train_loader, val_loader
