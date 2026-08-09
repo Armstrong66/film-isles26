@@ -4,18 +4,14 @@
 # Track-specific overrides are in configs/track_*.yaml
 # =============================================================================
 
-# RTX DATA PATHS: Update these for RTX workstation
-#   root:          "/data/derrick/isles26/raw/ATLAS3_Training_Raw"
-#   processed_dir: "/data/derrick/isles26/processed"
-#   log_dir:       "/data/derrick/isles26/logs"
-# Kaggle PATHS: Keep as-is for Kaggle environment
+# RTX DATA PATHS
 data:
-  root:          "/kaggle/input/notebooks/josephderrick/ingest-atlas/atlas_raw"
+  root:          "/data/derrick/isles26/raw/ATLAS3_Training_Raw"
   images_dir:    "images"
   masks_dir:     "masks"
   meta_csv:      "metadata/metadata.csv"
   inventory:     "inventory.json"
-  processed_dir: "/kaggle/temp/processed"      # output of preprocessing (use /kaggle/temp for space)
+  processed_dir: "/data/derrick/isles26/processed"
   n_splits:      5                             # CV folds
   seed:          42
 
@@ -42,7 +38,7 @@ split:
 
 training:
   epochs:        1000
-  batch_size:    2
+  batch_size:    8      # Increased for 96GB RTX VRAM
   patch_size:    [128, 128, 128]
   optimizer:     "adamw"
   lr:            1.0e-3
@@ -93,4 +89,4 @@ evaluation:
 
 logging:
   level: "INFO"
-  log_dir: "/kaggle/working/logs"
+  log_dir: "/home/derrick/projects/film-isles26/outputs/logs"

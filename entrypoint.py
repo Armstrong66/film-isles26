@@ -340,10 +340,13 @@ async def invoke():
         input_path = find_input_file()
         log.info(f"Input: {input_path}")
 
-        # Load config
+        # Load config (supports both Docker and local dev paths)
         cfg_path = Path("/opt/algorithm/configs/config.yaml")
         if not cfg_path.exists():
             cfg_path = Path("/opt/algorithm/config.yaml")
+        if not cfg_path.exists():
+            # Local dev fallback
+            cfg_path = Path(__file__).parent / "configs" / "config.yaml"
 
         if CFG is None:
             from omegaconf import OmegaConf
@@ -411,10 +414,13 @@ async def startup_event():
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     log.info(f"Using device: {DEVICE}")
 
-    # Load config
+    # Load config (supports both local dev and Docker paths)
     cfg_path = Path("/opt/algorithm/configs/config.yaml")
     if not cfg_path.exists():
         cfg_path = Path("/opt/algorithm/config.yaml")
+    if not cfg_path.exists():
+        # Local dev fallback
+        cfg_path = Path(__file__).parent / "configs" / "config.yaml"
 
     from omegaconf import OmegaConf
     CFG = OmegaConf.to_container(OmegaConf.load(cfg_path), resolve=True)
@@ -444,10 +450,13 @@ def main_cli():
     log.info(f"Input:  {input_path}")
     log.info(f"Output: {output_path}")
 
-    # Load config
+    # Load config (supports both local dev and Docker paths)
     cfg_path = Path("/opt/algorithm/configs/config.yaml")
     if not cfg_path.exists():
         cfg_path = Path("/opt/algorithm/config.yaml")
+    if not cfg_path.exists():
+        # Local dev fallback
+        cfg_path = Path(__file__).parent / "configs" / "config.yaml"
 
     from omegaconf import OmegaConf
     cfg = OmegaConf.to_container(OmegaConf.load(cfg_path), resolve=True)
