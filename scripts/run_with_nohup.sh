@@ -87,7 +87,7 @@ detect_gpu
 export CUDA_VISIBLE_DEVICES="$GPU_ID"
 
 # Define log directory
-LOG_DIR="/data/derrick/isles26/logs"
+LOG_DIR="/home/derrick/projects/film-isles26/outputs/logs"
 LOG_FILE="$LOG_DIR/${JOB_NAME}.log"
 
 # Create log directory if it doesn't exist

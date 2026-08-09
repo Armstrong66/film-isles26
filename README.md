@@ -110,6 +110,15 @@ nohup python pipeline/train.py \
     --track A \
     > /data/derrick/isles26/logs/train_trackA.log 2>&1 &
 
+#monitor
+tail -f /data/derrick/isles26/logs/train_trackA.log
+
+nohup python pipeline/train.py \
+    --config configs/config_rtx.yaml \
+    --fold 0 \
+    --track A \
+    > /data/derrick/isles26/logs/train_trackA.log 2>&1 &
+
 nohup python pipeline/train.py \
     --config configs/config_rtx.yaml \
     --fold all \

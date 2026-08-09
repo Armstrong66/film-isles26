@@ -4,12 +4,12 @@ conditioning.py
 Interchangeable conditioning modules for ISLES26.
 
 Track A — FiLM (Feature-wise Linear Modulation)
-    Takes a hand-crafted metadata vector (dim=4) and produces (gamma, beta)
+    Takes a hand-crafted metadata vector (dim=5) and produces (gamma, beta)
     scale-shift pairs that modulate decoder bottleneck feature maps.
 
 Track C — LLM Language-grounded Conditioning
     Passes a natural language metadata string through a frozen small LLM
-    (Qwen2.5-1.5B or Phi-3-mini) and projects the final hidden state into
+    (Qwen2.5-1.5B or Phi-3-mini; all-MiniLM-L6-v2, 22MB in use now) and projects the final hidden state into
     (gamma, beta) pairs with the same interface as Track A.
 
 Both modules expose an identical forward signature:
@@ -71,7 +71,7 @@ class BaseConditioner(nn.Module):
 
     def forward(
         self,
-        meta_vec:    torch.Tensor,   # (B, 4)
+        meta_vec:    torch.Tensor,   # (B, 5)
         meta_text:   list[str],      # list of B strings
         feature_dim: int,            # C of the bottleneck feature map
     ) -> tuple[torch.Tensor, torch.Tensor]:
@@ -96,13 +96,13 @@ class FiLMConditioner(BaseConditioner):
     """
     Track A — FiLM metadata gate.
 
-    Encodes the 4-dim metadata vector [days_norm, is_acute, is_subacute, is_chronic]
+    Encodes the 5-dim metadata vector [days_norm, is_acute, is_subacute, is_chronic]
     through a small MLP to produce the conditioning embedding.
     """
 
     def __init__(self, cfg_cond: DictConfig) -> None:
         film_cfg   = cfg_cond.film
-        meta_dim   = film_cfg.metadata_dim    # 4
+        meta_dim   = film_cfg.metadata_dim    # 5
         hidden_dim = film_cfg.hidden_dim       # 64
         super().__init__(embed_dim=hidden_dim, hidden_dim=hidden_dim)
 

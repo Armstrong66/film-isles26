@@ -31,7 +31,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from omegaconf import DictConfig
 
-from conditioning import build_conditioner, BaseConditioner
+from .conditioning import build_conditioner, BaseConditioner
 
 log = logging.getLogger(__name__)
 
@@ -97,9 +97,15 @@ class DecoderBlock(nn.Module):
         self, x: torch.Tensor, skip: torch.Tensor
     ) -> torch.Tensor:
         x = self.up(x)
-        # Handle size mismatch from odd spatial dims
-        if x.shape != skip.shape:
+        # Handle size mismatch from odd spatial dims during encoding
+        # after upsample, x might not exactly match skip spatially
+        if x.shape[2:] != skip.shape[2:]:
             x = F.interpolate(x, size=skip.shape[2:], mode="trilinear", align_corners=False)
+
+        # Debug: log shapes before cat
+        import sys
+        print(f"[DecoderBlock] x.shape={x.shape}, skip.shape={skip.shape}", file=sys.stderr)
+
         return self.res(torch.cat([x, skip], dim=1))
 
 
