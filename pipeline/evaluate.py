@@ -31,9 +31,9 @@ import nibabel as nib
 from omegaconf import OmegaConf, DictConfig
 from tqdm import tqdm
 
-from dataset import build_dataloaders, build_records
-from model import build_model, ISLES26Model
-from train import load_checkpoint
+from .dataset import build_dataloaders, build_records
+from .model import build_model, ISLES26Model
+from .train import load_checkpoint
 
 log = logging.getLogger(__name__)
 
@@ -131,13 +131,15 @@ def evaluate_scan(
     cfg:        DictConfig,
     device:     torch.device,
     use_tta:    bool = False,
+    save_probs: bool = False,
+    fold:       int = 0,
 ) -> dict:
     image     = batch["image"].to(device)
     mask      = batch["mask"].squeeze().cpu().numpy().astype(np.uint8)
     meta_vec  = batch["meta_vec"].to(device)
     meta_text = batch["meta_text"]
-    uid       = batch["uid"][0]
-    chronicity = batch["chronicity"][0]
+    uid       = batch["uid"][0] if "uid" in batch else "unknown"
+    chronicity = batch["chronicity"][0] if "chronicity" in batch else "unknown"
 
     # Voxel volume — assume 1mm³ (confirmed by EDA); load from stats if available
     voxel_vol_mm3 = 1.0
@@ -148,10 +150,16 @@ def evaluate_scan(
         )
     else:
         with torch.no_grad():
-            logits = model(image, meta_vec, meta_text)[0]
+            logits = model(image, meta_vec, meta_text, [chronicity], [uid])[0]
             probs  = torch.softmax(logits, dim=1)[:, 1:2]
 
     pred = (probs.squeeze().cpu().numpy() > 0.5).astype(np.uint8)
+
+    # Save probability maps if requested (for interpretability, NOT for Docker)
+    if save_probs:
+        prob_map_path = Path(cfg.logging.log_dir) / f"track_{cfg.conditioning.track}" / f"fold_{fold}" / "probs"
+        prob_map_path.mkdir(parents=True, exist_ok=True)
+        np.save(prob_map_path / f"{uid}_prob.npy", probs.squeeze().cpu().numpy().astype(np.float32))
 
     # Post-process: remove small components
     pred = remove_small_components(pred, cfg.postprocessing.min_component_size_voxels)
@@ -234,6 +242,7 @@ def evaluate_fold(
     df_meta: pd.DataFrame,
     device:  torch.device,
     use_tta: bool = False,
+    save_probs: bool = False,
 ) -> dict:
     log.info(f"Evaluating fold {fold} | track={cfg.conditioning.track} | tta={use_tta}")
 
@@ -247,7 +256,7 @@ def evaluate_fold(
 
     scan_records = []
     for batch in tqdm(val_dl, desc=f"Fold {fold} eval"):
-        rec = evaluate_scan(model, batch, cfg, device, use_tta)
+        rec = evaluate_scan(model, batch, cfg, device, use_tta, save_probs, fold)
         scan_records.append(rec)
         log.debug(f"  {rec['uid']} | dice={rec['dice']:.4f} hd95={rec['hd95']:.2f}")
 
@@ -271,6 +280,8 @@ def main() -> None:
     parser.add_argument("--tta",      action="store_true")
     parser.add_argument("--ensemble", action="store_true",
                         help="Average predictions across all fold checkpoints")
+    parser.add_argument("--save-probs", action="store_true",
+                        help="Save probability maps for interpretability (local only)")
     args = parser.parse_args()
 
     cfg = OmegaConf.load(args.config)
@@ -293,7 +304,7 @@ def main() -> None:
 
     all_results = []
     for fold in folds_to_run:
-        result = evaluate_fold(cfg, fold, splits, df_meta, device, use_tta=args.tta)
+        result = evaluate_fold(cfg, fold, splits, df_meta, device, use_tta=args.tta, save_probs=args.save_probs)
         all_results.append(result)
 
     if len(all_results) > 1:

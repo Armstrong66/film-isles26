@@ -206,8 +206,10 @@ class ISLES26Model(nn.Module):
     def forward(
         self,
         x:          torch.Tensor,   # (B, 1, H, W, D)
-        meta_vec:   torch.Tensor,   # (B, 4)
+        meta_vec:   torch.Tensor,   # (B, 5)  [days_norm, is_acute, is_subacute, is_chronic, confirmed_chronic]
         meta_text:  list[str],      # list of B strings
+        chronicity: Optional[list[str]] = None,  # for hooks
+        uid:        Optional[list[str]] = None,  # for hooks
     ) -> list[torch.Tensor]:
         """
         Returns a list of logit tensors for deep supervision,
@@ -222,14 +224,24 @@ class ISLES26Model(nn.Module):
         x, s3 = self.enc3(x)
 
         # ── Bottleneck ────────────────────────────────────────────────────────
-        x = self.bottleneck(x)                          # (B, 320, H/16, W/16, D/16)
+        x_before_film = self.bottleneck(x)              # (B, 320, H/16, W/16, D/16)
 
         # ── Conditioning injection ────────────────────────────────────────────
-        gamma, beta = self.conditioner(meta_vec, meta_text, feature_dim=x.shape[1])
-        x = apply_film(x, gamma, beta)
+        gamma, beta = self.conditioner(meta_vec, meta_text, feature_dim=x_before_film.shape[1])
+
+        # Hook for interpretability (read-only, zero overhead when not attached)
+        if getattr(self, "_film_hook", None) is not None:
+            self._film_hook(gamma, beta, meta_text, chronicity or [])
+
+        x_after_film = apply_film(x_before_film, gamma, beta)
+
+        # Hook for bottleneck embeddings (read-only, zero overhead when not attached)
+        # x_pre = before FiLM, x_post = after FiLM
+        if getattr(self, "_embed_hook", None) is not None:
+            self._embed_hook(x_before_film.clone(), x_after_film, chronicity or [], uid or [])
 
         # ── Decode ────────────────────────────────────────────────────────────
-        d3 = self.dec3(x,  s3)
+        d3 = self.dec3(x_after_film,  s3)
         d2 = self.dec2(d3, s2)
         d1 = self.dec1(d2, s1)
         d0 = self.dec0(d1, s0)
@@ -247,13 +259,15 @@ class ISLES26Model(nn.Module):
         x:         torch.Tensor,
         meta_vec:  torch.Tensor,
         meta_text: list[str],
+        chronicity: Optional[list[str]] = None,
+        uid:       Optional[list[str]] = None,
     ) -> torch.Tensor:
         """
         Inference-only: returns binary mask from finest-scale logits.
         No deep supervision — returns (B, 1, H, W, D) uint8 mask.
         """
         with torch.no_grad():
-            logits = self.forward(x, meta_vec, meta_text)[0]
+            logits = self.forward(x, meta_vec, meta_text, chronicity, uid)[0]
             probs  = torch.softmax(logits, dim=1)[:, 1:2]   # class-1 probability
             return (probs > 0.5).to(torch.uint8)
 

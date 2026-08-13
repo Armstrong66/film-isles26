@@ -1,0 +1,25 @@
+# =============================================================================
+# ISLES 2026 — Docker Inference Requirements
+# Minimal dependencies for inference-only (no interpretability tools)
+# =============================================================================
+
+# ── Core deep learning ─────────────────────────────────────────────────────────
+torch==2.3.1
+# Install with: pip install torch==2.3.1 torchvision==0.18.1 --index-url https://download.pytorch.org/whl/cu121
+
+# ── Medical image I/O ───────────────────────────────────────────────────────────
+nibabel==5.2.1
+SimpleITK==2.4.0
+
+# ── Augmentation ───────────────────────────────────────────────────────────────
+monai==1.3.2
+
+# ── Config management ───────────────────────────────────────────────────────────
+omegaconf==2.3.0
+
+# ── Track C only (remove for Track A Docker) ───────────────────────────────────
+# sentence-transformers==3.0.1
+
+# ── Docker / API (for Grand Challenge) ─────────────────────────────────────────
+fastapi==0.115.0
+uvicorn==0.30.1

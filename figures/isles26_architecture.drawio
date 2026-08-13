@@ -1,0 +1,182 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="drawio" version="26.0.0">
+  <diagram name="Page-1" id="isles26_architecture">
+    <mxGraphModel>
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <!-- Data Input -->
+        <mxCell id="2" value="Raw T1w MRI&#xa;(native space, variable orientation/spacing)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e8f4fd;strokeColor=#4a6fa5;align=center;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="80" width="140" height="100" as="geometry" />
+        </mxCell>
+        <!-- Preprocessing -->
+        <mxCell id="3" value="Preprocessing" style="swimlane;startSize=30;rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f4fd;strokeColor=#4a6fa5;" vertex="1" parent="1">
+          <mxGeometry x="220" y="50" width="180" height="160" as="geometry" />
+        </mxCell>
+        <!-- Preprocessing children -->
+        <mxCell id="4" value="Reorient (LAS→RAS)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#4a6fa5;" vertex="1" parent="3">
+          <mxGeometry x="10" y="40" width="160" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="5" value="Per-scan foreground z-score" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#4a6fa5;" vertex="1" parent="3">
+          <mxGeometry x="10" y="85" width="160" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="6" value="Patch crop 128³" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#4a6fa5;" vertex="1" parent="3">
+          <mxGeometry x="10" y="130" width="160" height="40" as="geometry" />
+        </mxCell>
+        <!-- Metadata Encoding -->
+        <mxCell id="7" value="Metadata Encoding" style="swimlane;startSize=30;rounded=1;whiteSpace=wrap;html=1;fillColor=#fff3e0;strokeColor=#e65100;" vertex="1" parent="1">
+          <mxGeometry x="220" y="250" width="180" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="8" value="DAYS_POST_STROKE (log-norm) + CHRONICITY_DERIVED (4-class) → 5-dim vector" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#e65100;" vertex="1" parent="7">
+          <mxGeometry x="10" y="40" width="160" height="50" as="geometry" />
+        </mxCell>
+        <!-- 3D U-Net -->
+        <mxCell id="9" value="3D U-Net" style="swimlane;startSize=30;rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f5e9;strokeColor=#2e7d32;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="440" y="30" width="320" height="370" as="geometry" />
+        </mxCell>
+        <!-- Encoder -->
+        <mxCell id="10" value="Encoder (1→16→32→64→128→256 channels)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#2e7d32;" vertex="1" parent="9">
+          <mxGeometry x="10" y="40" width="290" height="60" as="geometry" />
+        </mxCell>
+        <!-- Bottleneck -->
+        <mxCell id="11" value="Bottleneck (256→320 channels)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#2e7d32;" vertex="1" parent="9">
+          <mxGeometry x="10" y="110" width="290" height="50" as="geometry" />
+        </mxCell>
+        <!-- Conditioning Gate (highlighted) -->
+        <mxCell id="12" value="Conditioning Gate (γ, β) injection" style="rounded=0;dashed=1;whiteSpace=wrap;html=1;fillColor=#fff3e0;strokeColor=#e65100;fontStyle=1;" vertex="1" parent="9">
+          <mxGeometry x="10" y="175" width="290" height="50" as="geometry" />
+        </mxCell>
+        <!-- Decoder -->
+        <mxCell id="13" value="Decoder (4-scale upsampling with skip connections)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#2e7d32;" vertex="1" parent="9">
+          <mxGeometry x="10" y="240" width="290" height="50" as="geometry" />
+        </mxCell>
+        <!-- Deep supervision heads -->
+        <mxCell id="14" value="Deep supervision (4 scales)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#2e7d32;" vertex="1" parent="9">
+          <mxGeometry x="10" y="305" width="290" height="50" as="geometry" />
+        </mxCell>
+        <!-- Loss -->
+        <mxCell id="15" value="Loss: Dice + CE + Boundary Focal" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e5f5;strokeColor=#7b1fa2;" vertex="1" parent="1">
+          <mxGeometry x="790" y="110" width="160" height="60" as="geometry" />
+        </mxCell>
+        <!-- Training -->
+        <mxCell id="16" value="Training (5-fold CV, poly LR, AdamW)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e5f5;strokeColor=#7b1fa2;" vertex="1" parent="1">
+          <mxGeometry x="790" y="190" width="160" height="60" as="geometry" />
+        </mxCell>
+        <!-- Output -->
+        <mxCell id="17" value="Binary lesion mask" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff8e1;strokeColor=#fbc02d;" vertex="1" parent="1">
+          <mxGeometry x="790" y="270" width="160" height="50" as="geometry" />
+        </mxCell>
+        <!-- Post-processing -->
+        <mxCell id="18" value="Post-processing (min 10 voxels)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff8e1;strokeColor=#fbc02d;" vertex="1" parent="1">
+          <mxGeometry x="790" y="340" width="160" height="50" as="geometry" />
+        </mxCell>
+        <!-- Evaluation -->
+        <mxCell id="19" value="Evaluation (Dice, Hausdorff95, PR-AUC)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff8e1;strokeColor=#fbc02d;" vertex="1" parent="1">
+          <mxGeometry x="790" y="410" width="160" height="60" as="geometry" />
+        </mxCell>
+        <!-- Track A (FiLM) -->
+        <mxCell id="20" value="Track A: FiLM (5-dim vector → MLP → (γ, β))" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe0b2;strokeColor=#ff6f00;" vertex="1" parent="1">
+          <mxGeometry x="220" y="380" width="220" height="50" as="geometry" />
+        </mxCell>
+        <!-- Track C (LLM) -->
+        <mxCell id="21" value="Track C: LLM (sentence-transformer → (γ, β))" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1bee7;strokeColor=#7b1fa2;" vertex="1" parent="1">
+          <mxGeometry x="220" y="450" width="220" height="50" as="geometry" />
+        </mxCell>
+        <!-- Connectors -->
+        <!-- Data → Preprocessing -->
+        <mxCell id="22" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="2" target="3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <!-- Preprocessing → 3D U-Net (main flow) -->
+        <mxCell id="23" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.25;entryDx=0;entryDy=0;" edge="1" parent="1" source="3" target="9">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <!-- Metadata → Conditioning Gate -->
+        <mxCell id="24" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="7" target="12">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <!-- Track A → Conditioning Gate -->
+        <mxCell id="25" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.75;entryDx=0;entryDy=0;" edge="1" parent="1" source="20" target="12">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <!-- Track C → Conditioning Gate -->
+        <mxCell id="26" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="21" target="12">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <!-- 3D U-Net → Loss -->
+        <mxCell id="27" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="9" target="15">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <!-- Loss → Training -->
+        <mxCell id="28" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="15" target="16">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <!-- Training → Output -->
+        <mxCell id="29" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="16" target="17">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <!-- Output → Post-processing -->
+        <mxCell id="30" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="17" target="18">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <!-- Post-processing → Evaluation -->
+        <mxCell id="31" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="18" target="19">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <!-- Legend -->
+        <mxCell id="32" value="Legend" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#666666;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="990" y="60" width="200" height="250" as="geometry" />
+        </mxCell>
+        <!-- Legend entries -->
+        <mxCell id="33" value="" style="rounded=0;html=1;fillColor=#e8f4fd;strokeColor=#4a6fa5;" vertex="1" parent="32">
+          <mxGeometry x="10" y="30" width="20" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="34" value="Data/Preprocessing" style="text;html=1;align=left;verticalAlign=middle;" vertex="1" parent="32">
+          <mxGeometry x="40" y="28" width="150" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="35" value="" style="rounded=0;html=1;fillColor=#fff3e0;strokeColor=#e65100;" vertex="1" parent="32">
+          <mxGeometry x="10" y="60" width="20" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="36" value="Metadata Encoding" style="text;html=1;align=left;verticalAlign=middle;" vertex="1" parent="32">
+          <mxGeometry x="40" y="58" width="150" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="37" value="" style="rounded=0;html=1;fillColor=#e8f5e9;strokeColor=#2e7d32;" vertex="1" parent="32">
+          <mxGeometry x="10" y="90" width="20" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="38" value="3D U-Net Backbone" style="text;html=1;align=left;verticalAlign=middle;" vertex="1" parent="32">
+          <mxGeometry x="40" y="88" width="150" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="39" value="" style="rounded=0;html=1;fillColor=#d5e8d4;strokeColor=#2e7d32;" vertex="1" parent="32">
+          <mxGeometry x="10" y="120" width="20" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="40" value="Regular U-Net Block" style="text;html=1;align=left;verticalAlign=middle;" vertex="1" parent="32">
+          <mxGeometry x="40" y="118" width="150" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="41" value="" style="rounded=0;html=1;fillColor=#ffe0b2;strokeColor=#ff6f00;dashed=1;" vertex="1" parent="32">
+          <mxGeometry x="10" y="150" width="20" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="42" value="FiLM Gate (Track A)" style="text;html=1;align=left;verticalAlign=middle;" vertex="1" parent="32">
+          <mxGeometry x="40" y="148" width="150" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="43" value="" style="rounded=0;html=1;fillColor=#e1bee7;strokeColor=#7b1fa2;dashed=1;" vertex="1" parent="32">
+          <mxGeometry x="10" y="180" width="20" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="44" value="LLM Gate (Track C)" style="text;html=1;align=left;verticalAlign=middle;" vertex="1" parent="32">
+          <mxGeometry x="40" y="178" width="150" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="45" value="" style="rounded=0;html=1;fillColor=#f3e5f5;strokeColor=#7b1fa2;" vertex="1" parent="32">
+          <mxGeometry x="10" y="210" width="20" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="46" value="Loss/Training" style="text;html=1;align=left;verticalAlign=middle;" vertex="1" parent="32">
+          <mxGeometry x="40" y="208" width="150" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="47" value="" style="rounded=0;html=1;fillColor=#fff8e1;strokeColor=#fbc02d;" vertex="1" parent="32">
+          <mxGeometry x="10" y="240" width="20" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="48" value="Output/Evaluation" style="text;html=1;align=left;verticalAlign=middle;" vertex="1" parent="32">
+          <mxGeometry x="40" y="238" width="150" height="20" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

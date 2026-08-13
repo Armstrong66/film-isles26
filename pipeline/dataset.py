@@ -38,7 +38,7 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 from omegaconf import DictConfig
 
-from augmentation import get_train_transforms, get_val_transforms
+from .augmentation import get_train_transforms, get_val_transforms
 
 log = logging.getLogger(__name__)
 

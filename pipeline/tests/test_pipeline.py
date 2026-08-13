@@ -39,26 +39,26 @@ from omegaconf import OmegaConf
 PIPELINE_DIR = Path(__file__).parent.parent
 sys.path.insert(0, str(PIPELINE_DIR))
 
-from preprocessing import (
+from .preprocessing import (
     reorient_to_ras, reorient_mask_to_ras,
     clip_and_normalise, binarise_mask, ScanStats,
 )
-from augmentation import (
+from .augmentation import (
     get_train_transforms, get_val_transforms,
     AcuteContrastReduction, ChronicCavityPerturbation,
 )
-from dataset import (
+from .dataset import (
     encode_metadata_vector, encode_metadata_text,
     ISLES26Dataset, build_records,
 )
-from splits import make_joint_stratum, generate_splits, validate_splits
-from conditioning import FiLMConditioner, LLMConditioner, build_conditioner
-from model import ISLES26Model, build_model, ResBlock, apply_film
+from .splits import make_joint_stratum, generate_splits, validate_splits
+from .conditioning import FiLMConditioner, LLMConditioner, build_conditioner
+from .model import ISLES26Model, build_model, ResBlock, apply_film
 from loss import (
     soft_dice_loss, weighted_cross_entropy, boundary_focal_loss,
     compute_scan_weights, ISLES26Loss,
 )
-from evaluate import dice_score, precision_recall, hausdorff95, remove_small_components
+from .evaluate import dice_score, precision_recall, hausdorff95, remove_small_components
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

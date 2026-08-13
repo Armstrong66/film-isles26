@@ -37,7 +37,7 @@ split:
 
 training:
   epochs:        1000
-  batch_size:    2
+  batch_size:    8
   patch_size:    [128, 128, 128]
   optimizer:     "adamw"
   lr:            1.0e-3

@@ -4,6 +4,10 @@
 *.tar.gz
 *.zip
 # !isles26_train.zip  # remove soon
+
+# Directories for data and outputs
+data/
+checkpoints/
 logs/
 processed/
 

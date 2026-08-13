@@ -35,9 +35,9 @@ from torch.amp import GradScaler, autocast
 import pandas as pd
 from tqdm import tqdm
 
-from dataset import build_dataloaders
-from model import build_model
-from loss import ISLES26Loss
+from .dataset import build_dataloaders
+from .model import build_model
+from .loss import ISLES26Loss
 
 log = logging.getLogger(__name__)
 
@@ -165,8 +165,12 @@ def run_epoch(
             meta_vec  = batch["meta_vec"].to(device)
             meta_text = batch["meta_text"]   # list of strings, stays on CPU
 
+            # Extract chronicity and uid for hooks (interpretability)
+            chronicity = batch.get("chronicity", ["unknown"] * len(meta_text))
+            uid = batch.get("uid", ["unknown"] * len(meta_text))
+
             with autocast(device_type=device.type, enabled=scaler is not None):
-                logits_list = model(image, meta_vec, meta_text)
+                logits_list = model(image, meta_vec, meta_text, chronicity, uid)
                 loss, loss_dict = criterion(logits_list, mask.float())
 
             # Check for NaN/Inf loss early to prevent gradient corruption

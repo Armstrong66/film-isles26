@@ -213,7 +213,7 @@ on a T4 before finalising. Target: < 7 min total including model loading.
 - Load all 5 checkpoints once at container startup (not per scan)
 - Use torch.load(..., map_location='cuda') with map_location to avoid CPU spike
 - Set model.eval() and torch.no_grad() globally
-- Use mixed precision (torch.cuda.amp.autocast) at inference
+- Use mixed precision (`torch.amp.autocast`) at inference
 
 ### Output requirements
 - Same spatial dimensions as input (no resampling of output)

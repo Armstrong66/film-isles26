@@ -3,6 +3,9 @@ entrypoint.py
 -------------
 Docker entrypoint for ISLES26 submission (FastAPI Grand Challenge API).
 
+INTERPRETABILITY IMPORTS ARE EXPLICITLY EXCLUDED FROM THIS FILE.
+See pipeline/interpretability.py for post-hoc analysis (local only).
+
 This implements the Grand Challenge algorithm API:
 - GET /health  — Health check endpoint
 - POST /invoke — Run inference on input image
@@ -32,6 +35,7 @@ from typing import Optional
 import numpy as np
 import nibabel as nib
 import torch
+from torch.amp import autocast
 from fastapi import FastAPI, Response
 from fastapi.responses import JSONResponse
 
@@ -184,7 +188,7 @@ def predict_single_scan(
 
     for fold, model in enumerate(models):
         with torch.no_grad():
-            with torch.cuda.amp.autocast(device_type=DEVICE.type, enabled=True):
+            with autocast(device_type=DEVICE.type, enabled=True):
                 logits_list = model(x, meta_vec, meta_text)
                 logits = logits_list[0]  # finest scale
 
