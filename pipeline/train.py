@@ -37,9 +37,24 @@ from tqdm import tqdm
 
 from .dataset import build_dataloaders
 from .model import build_model
-from .loss import ISLES26Loss
+from .loss import ISLES26Loss, get_boundary_weight
 
 log = logging.getLogger(__name__)
+
+# Sliding window inferer for validation
+try:
+    from monai.inferers import SlidingWindowInferer
+    MONAI_AVAILABLE = True
+except ImportError:
+    MONAI_AVAILABLE = False
+    log.warning("MONAI not available - sliding window inference disabled")
+
+VAL_INFERER = SlidingWindowInferer(
+    roi_size=[128, 128, 128],
+    sw_batch_size=2,
+    overlap=0.5,
+    mode="gaussian",
+) if MONAI_AVAILABLE else None
 
 
 # ── Metrics ───────────────────────────────────────────────────────────────────
@@ -59,11 +74,31 @@ def batch_dice(
     return dice.mean().item()
 
 
+# ── Optimizer factory ───────────────────────────────────────────────────────
+
+def build_optimizer(model: nn.Module, cfg: DictConfig) -> torch.optim.Optimizer:
+    """
+    Conditioning module gets 10× lower LR than backbone.
+    This prevents the FiLM gate from destabilising the backbone early in training.
+    """
+    cond_params    = list(model.conditioner.parameters())
+    cond_param_ids = set(id(p) for p in cond_params)
+    backbone_params = [p for p in model.parameters()
+                       if id(p) not in cond_param_ids]
+
+    return torch.optim.AdamW([
+        {"params": backbone_params,  "lr": cfg.training.lr},
+        {"params": cond_params,      "lr": cfg.training.lr * 0.1,
+         "weight_decay": 0.0},   # no WD on the small conditioning MLP
+    ], weight_decay=cfg.training.weight_decay)
+
+
 # ── LR scheduler ─────────────────────────────────────────────────────────────
 
 class PolyLRScheduler:
     """
-    Polynomial decay: lr = base_lr * (1 - epoch/max_epochs)^exp
+    Polynomial decay with linear warmup: lr = base_lr * (1 - epoch/max_epochs)^exp
+    Linear warmup for first warmup_epochs, then poly decay.
     Matches nnU-Net's default schedule exactly.
     """
 
@@ -72,15 +107,23 @@ class PolyLRScheduler:
         optimizer:   torch.optim.Optimizer,
         initial_lr:  float,
         max_epochs:  int,
+        warmup_epochs: int = 0,
         exp:         float = 0.9,
     ) -> None:
         self.optimizer  = optimizer
         self.initial_lr = initial_lr
         self.max_epochs = max_epochs
+        self.warmup_epochs = warmup_epochs
         self.exp        = exp
 
     def step(self, epoch: int) -> float:
-        lr = self.initial_lr * (1 - epoch / self.max_epochs) ** self.exp
+        if epoch < self.warmup_epochs:
+            # Linear warmup
+            lr = self.initial_lr * (epoch + 1) / self.warmup_epochs
+        else:
+            adjusted = epoch - self.warmup_epochs
+            max_adj  = self.max_epochs - self.warmup_epochs
+            lr = self.initial_lr * (1 - adjusted / max_adj) ** self.exp
         for pg in self.optimizer.param_groups:
             pg["lr"] = lr
         return lr
@@ -147,6 +190,7 @@ def run_epoch(
     is_train:   bool,
     grad_clip:  float = 1.0,
     fold:       int = 0,
+    epoch:      int = 0,
 ) -> dict:
     model.train() if is_train else model.eval()
     ctx = torch.enable_grad() if is_train else torch.no_grad()
@@ -169,9 +213,18 @@ def run_epoch(
             chronicity = batch.get("chronicity", ["unknown"] * len(meta_text))
             uid = batch.get("uid", ["unknown"] * len(meta_text))
 
-            with autocast(device_type=device.type, enabled=scaler is not None):
-                logits_list = model(image, meta_vec, meta_text, chronicity, uid)
-                loss, loss_dict = criterion(logits_list, mask.float())
+            # Sliding window inference for validation
+            if not is_train and VAL_INFERER is not None:
+                def _forward(img):
+                    return model(img, meta_vec, meta_text, chronicity, uid)[0]   # finest scale only
+                logits_list = [VAL_INFERER(_forward, image)]
+            else:
+                with autocast(device_type=device.type, enabled=scaler is not None):
+                    logits_list = model(image, meta_vec, meta_text, chronicity, uid)
+
+            # Apply current epoch to criterion for loss warmup
+            criterion.boundary_w = get_boundary_weight(epoch)
+            loss, loss_dict = criterion(logits_list, mask.float())
 
             # Check for NaN/Inf loss early to prevent gradient corruption
             if torch.isnan(loss) or torch.isinf(loss):
@@ -182,6 +235,11 @@ def run_epoch(
                 optimizer.zero_grad(set_to_none=True)
                 if scaler:
                     scaler.scale(loss).backward()
+                    # Log raw gradient norm before clipping (diagnostic)
+                    raw_norm = sum(p.grad.norm()**2 for p in model.parameters()
+                                   if p.grad is not None) ** 0.5
+                    if raw_norm > 100:
+                        log.warning(f"High raw grad norm: {raw_norm:.1f} check conditioning LR")
                     # Check for NaN gradients before clipping
                     has_nan_grad = False
                     total_grad_norm = 0.0
@@ -253,15 +311,12 @@ def train_fold(
         model = torch.nn.DataParallel(model)
 
     criterion = ISLES26Loss(cfg).to(device)
-    optimizer = torch.optim.AdamW(
-        model.parameters(),
-        lr           = cfg.training.lr,
-        weight_decay = cfg.training.weight_decay,
-    )
+    optimizer = build_optimizer(model, cfg)
     scheduler = PolyLRScheduler(
         optimizer,
         initial_lr = cfg.training.lr,
         max_epochs = cfg.training.epochs,
+        warmup_epochs = cfg.training.warmup_epochs,
         exp        = cfg.training.poly_exp,
     )
     scaler = GradScaler() if (cfg.training.mixed_precision and device.type == "cuda") else None
@@ -294,11 +349,11 @@ def train_fold(
 
         train_metrics = run_epoch(
             model, train_dl, criterion, optimizer, scaler,
-            device, is_train=True, grad_clip=cfg.training.grad_clip, fold=fold,
+            device, is_train=True, grad_clip=cfg.training.grad_clip, fold=fold, epoch=epoch,
         )
         val_metrics = run_epoch(
             model, val_dl, criterion, None, None,
-            device, is_train=False, fold=fold,
+            device, is_train=False, fold=fold, epoch=epoch,
         )
 
         elapsed = time.time() - t0

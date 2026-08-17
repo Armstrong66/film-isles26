@@ -176,6 +176,9 @@ class ISLES26Model(nn.Module):
         # ── Bottleneck ────────────────────────────────────────────────────────
         self.bottleneck = ResBlock(ch[4], bn)    # 256 → 320
 
+        # ── Post-FiLM normalisation to prevent feature scale explosion ──────────
+        self.post_film_norm = nn.InstanceNorm3d(bn, affine=True)
+
         # ── Conditioning ─────────────────────────────────────────────────────
         self.conditioner: BaseConditioner = build_conditioner(cfg)
 
@@ -233,7 +236,8 @@ class ISLES26Model(nn.Module):
         if getattr(self, "_film_hook", None) is not None:
             self._film_hook(gamma, beta, meta_text, chronicity or [])
 
-        x_after_film = apply_film(x_before_film, gamma, beta)
+        x_film = apply_film(x_before_film, gamma, beta)
+        x_after_film = self.post_film_norm(x_film)   # prevent feature scale explosion
 
         # Hook for bottleneck embeddings (read-only, zero overhead when not attached)
         # x_pre = before FiLM, x_post = after FiLM

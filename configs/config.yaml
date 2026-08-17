@@ -41,16 +41,17 @@ training:
   batch_size:    8      # Increased for 96GB RTX VRAM
   patch_size:    [128, 128, 128]
   optimizer:     "adamw"
-  lr:            1.0e-3
+  lr:            3.0e-4
   weight_decay:  1.0e-5
   lr_scheduler:  "poly"             # poly decay as in nnU-Net
   poly_exp:      0.9
-  early_stopping_patience: 50
+  warmup_epochs: 20                # new: linear warmup before poly decay
+  early_stopping_patience: 75       # ↑ from 50 — give more room post-warmup
   mixed_precision: true
-  grad_clip:     1.0
+  grad_clip:     0.5                # ↓ from 1.0 — tighter clipping
 
 model:
-  size: "small"    # options: tiny | small | base
+  size: "base"     # ↑ from small — small was under-capacity for 1453 scans
 
 loss:
   dice_weight:       1.0

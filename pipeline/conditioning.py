@@ -177,19 +177,54 @@ class LLMConditioner(BaseConditioner):
         return embed.float()   # cast back to float32 for projection
 
 
+# ── NullConditioner (ablation baseline) ──────────────────────────────────────
+
+class NullConditioner(BaseConditioner):
+    """
+    Identity conditioning — γ=1, β=0. Used for ablation baseline.
+
+    If NullConditioner scores similarly or better than Track A (FiLM) after 100 epochs,
+    the FiLM gate LR was the issue (separate LR fixes the problem).
+    """
+
+    def __init__(self, cfg) -> None:
+        super().__init__(embed_dim=1, hidden_dim=1)
+
+    def _encode(self, meta_vec: torch.Tensor, meta_text: list[str]) -> torch.Tensor:
+        # Return dummy embedding (shape doesn't matter, projection handles it)
+        return torch.zeros(meta_vec.shape[0], 1, device=meta_vec.device)
+
+    def forward(
+        self,
+        meta_vec:    torch.Tensor,
+        meta_text:   list[str],
+        feature_dim: int,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Always return identity: gamma=1, beta=0 (no modulation).
+        """
+        B, device = meta_vec.shape[0], meta_vec.device
+        return (
+            torch.ones(B, feature_dim, device=device),
+            torch.zeros(B, feature_dim, device=device),
+        )
+
+
 # ── Factory ───────────────────────────────────────────────────────────────────
 
 def build_conditioner(cfg: DictConfig) -> BaseConditioner:
     """
     Instantiate the correct conditioner from config.
-    cfg.conditioning.track: 'A' → FiLM, 'C' → LLM
+    cfg.conditioning.track: 'A' → FiLM, 'C' → LLM, 'NONE' → NullConditioner
     """
     track = cfg.conditioning.track.upper()
     if track == "A":
         return FiLMConditioner(cfg.conditioning)
     elif track == "C":
         return LLMConditioner(cfg.conditioning)
+    elif track == "NONE":
+        return NullConditioner(cfg.conditioning)
     else:
         raise ValueError(
-            f"Unknown conditioning track: '{track}'. Must be 'A' or 'C'."
+            f"Unknown conditioning track: '{track}'. Must be 'A', 'C', or 'NONE'."
         )

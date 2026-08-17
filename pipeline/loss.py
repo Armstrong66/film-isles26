@@ -122,6 +122,11 @@ def compute_scan_weights(
     return weights
 
 
+def get_boundary_weight(epoch: int, warmup: int = 50, max_w: float = 0.5) -> float:
+    """Ramp boundary focal loss weight from 0 to max_w over warmup epochs."""
+    return min(max_w, max_w * epoch / warmup) if warmup > 0 else max_w
+
+
 # ── Combined loss ─────────────────────────────────────────────────────────────
 
 class ISLES26Loss(nn.Module):
