@@ -257,42 +257,31 @@ def run_epoch(
                 optimizer.zero_grad(set_to_none=True)
                 if scaler:
                     scaler.scale(loss).backward()
-                    # Log raw gradient norm before clipping (diagnostic)
-                    raw_norm = sum(p.grad.norm()**2 for p in model.parameters()
-                                   if p.grad is not None) ** 0.5
-                    if raw_norm > 100:
-                        log.warning(f"High raw grad norm: {raw_norm:.1f} check conditioning LR")
-                    # Check for NaN gradients before clipping
-                    has_nan_grad = False
-                    total_grad_norm = 0.0
-                    for p in model.parameters():
-                        if p.grad is not None:
-                            pn = p.grad.data.norm(2).item()
-                            if pn != pn:  # NaN check
-                                has_nan_grad = True
-                                continue
-                            elif pn == float('inf') or pn > 1e9:  # Cap extreme values
-                                pn = 1e9
-                            total_grad_norm += pn
-                            if torch.isnan(p.grad).any():
-                                has_nan_grad = True
-                    if has_nan_grad:
-                        log.error("NaN gradient detected! Skipping batch.")
-                        scaler.update()  # avoid overflow
-                        continue
-                    # Log gradient norm before and after clipping
-                    grad_norm_before = total_grad_norm
+                    # Must unscale before clipping or inspecting gradients
                     scaler.unscale_(optimizer)
-                    grad_norm_after = nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+                    grad_norm = nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+
+                    # Check for NaN/inf after unscaling
+                    if not torch.isfinite(grad_norm):
+                        log.warning("Non-finite gradient norm encountered. Skipping optimizer step.")
+                        optimizer.zero_grad(set_to_none=True)
+                        scaler.update()
+                        continue
+
                     scaler.step(optimizer)
                     scaler.update()
-                    # Log gradient norm occasionally for debugging (use after-clipping value)
+
+                    # Periodic diagnostic log
                     if n_batches % 50 == 0:
-                        log.info(f"Grad norm: {grad_norm_after:.4f} (raw: {grad_norm_before:.4f})")
+                        log.info(f"Grad norm: {grad_norm:.4f} (max allowed: {grad_clip})")
                 else:
                     loss.backward()
-                    nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
-                    optimizer.step()
+                    grad_norm = nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+                    if torch.isfinite(grad_norm):
+                        optimizer.step()
+                    else:
+                        log.warning("Non-finite gradient norm on CPU/non-scaler. Skipping step.")
+                        optimizer.zero_grad(set_to_none=True)
 
             # Track metrics on finest-scale logits only
             dice = batch_dice(logits_list[0].detach(), mask)
@@ -344,7 +333,13 @@ def train_fold(
     scaler = GradScaler() if (cfg.training.mixed_precision and device.type == "cuda") else None
 
     # ── Checkpoint paths ──────────────────────────────────────────────────────
-    ckpt_dir  = Path(cfg.logging.log_dir) / f"track_{cfg.conditioning.track}" / f"fold_{fold}"
+    model_size = cfg.model.get("size", "base")
+    ckpt_dir_size = Path(cfg.logging.log_dir) / f"track_{cfg.conditioning.track}_{model_size}" / f"fold_{fold}"
+    ckpt_dir_legacy = Path(cfg.logging.log_dir) / f"track_{cfg.conditioning.track}" / f"fold_{fold}"
+    if (ckpt_dir_legacy / "last.pth").exists() and not (ckpt_dir_size / "last.pth").exists():
+        ckpt_dir = ckpt_dir_legacy
+    else:
+        ckpt_dir = ckpt_dir_size
     ckpt_dir.mkdir(parents=True, exist_ok=True)
     best_ckpt = ckpt_dir / "best.pth"
     last_ckpt = ckpt_dir / "last.pth"

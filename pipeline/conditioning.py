@@ -46,11 +46,10 @@ class BaseConditioner(nn.Module):
         self.embed_dim  = embed_dim
         self.hidden_dim = hidden_dim
         # Projection head: shared by both tracks
-        # Built lazily on first forward (feature_dim unknown at init time)
         self._proj: Optional[nn.Module] = None
 
-    def _build_projection(self, feature_dim: int) -> None:
-        """Build the (gamma, beta) projection head once feature_dim is known."""
+    def build_projection(self, feature_dim: int) -> None:
+        """Build the (gamma, beta) projection head for the given bottleneck feature_dim."""
         self._proj = nn.Sequential(
             nn.Linear(self.embed_dim, self.hidden_dim),
             nn.SiLU(),
@@ -61,9 +60,12 @@ class BaseConditioner(nn.Module):
         nn.init.zeros_(self._proj[-1].bias)
         self._proj[-1].bias.data[:feature_dim] = 1.0   # gamma bias → 1
 
-        self._proj = self._proj.to(next(self.parameters()).device
-                                   if len(list(self.parameters())) > 0
-                                   else "cpu")
+    def _build_projection(self, feature_dim: int) -> None:
+        """Backward-compatible alias for build_projection."""
+        self.build_projection(feature_dim)
+        device = next(self.parameters()).device if len(list(self.parameters())) > 0 else "cpu"
+        if self._proj is not None:
+            self._proj = self._proj.to(device)
 
     def _encode(self, meta_vec: torch.Tensor, meta_text: list[str]) -> torch.Tensor:
         """Return conditioning embedding of shape (B, embed_dim)."""

@@ -10,15 +10,21 @@
 #   splits      - Generate CV splits
 #   train       - Train model
 #   evaluate    - Evaluate model with TTA
+#   master      - Overnight multi-model training & benchmark orchestrator
 #
 # Options:
 #   --name <job_name>   Custom job name for log files
 #   --fold <n|all>      Training fold (default: all)
 #   --track <A|C>       Training track (default: A)
+#   --tracks <A C ...>  Multiple tracks for master runner
+#   --sizes <tiny ...>  Multiple model sizes for master runner
+#   --mode <mode>       Master runner mode: all, train, eval, verify
 #   --workers <n>       Number of workers (default: 8)
 #   --local             Run locally without nohup (for testing)
 #
 # Examples:
+#   ./scripts/run_job.sh master --mode all --name overnight_all_models
+#   ./scripts/run_job.sh master --fold 0 --name benchmark_fold0
 #   ./scripts/run_job.sh preprocess --name preproc_rtx
 #   ./scripts/run_job.sh train --fold all --track A --name train_all_folds
 #   ./scripts/run_job.sh evaluate --fold all --tta --name eval_all_tta
@@ -83,7 +89,7 @@ detect_gpu() {
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
-        preprocess|splits|train|evaluate)
+        preprocess|splits|train|evaluate|master|benchmark)
             JOB_TYPE="$1"
             shift
             ;;
@@ -98,6 +104,34 @@ while [[ $# -gt 0 ]]; do
         --track)
             CMD_ARGS+=("--track" "$2")
             shift 2
+            ;;
+        --tracks)
+            CMD_ARGS+=("--tracks")
+            shift
+            while [[ $# -gt 0 && ! $1 =~ ^-- ]]; do
+                CMD_ARGS+=("$1")
+                shift
+            done
+            ;;
+        --sizes)
+            CMD_ARGS+=("--sizes")
+            shift
+            while [[ $# -gt 0 && ! $1 =~ ^-- ]]; do
+                CMD_ARGS+=("$1")
+                shift
+            done
+            ;;
+        --mode)
+            CMD_ARGS+=("--mode" "$2")
+            shift 2
+            ;;
+        --force-retrain)
+            CMD_ARGS+=("--force-retrain")
+            shift
+            ;;
+        --force-eval)
+            CMD_ARGS+=("--force-eval")
+            shift
             ;;
         --workers)
             CMD_ARGS+=("--workers" "$2")
@@ -120,12 +154,12 @@ done
 
 # Validate job type
 if [ -z "$JOB_TYPE" ]; then
-    echo "Error: Job type required (preprocess, splits, train, evaluate)"
+    echo "Error: Job type required (preprocess, splits, train, evaluate, master)"
     echo ""
     echo "Usage: $0 <job_type> [options]"
     echo ""
     echo "Examples:"
-    echo "  $0 preprocess --name preproc_rtx"
+    echo "  $0 master --name overnight_benchmark"
     echo "  $0 train --fold all --track A --name train_all_folds"
     echo "  $0 evaluate --fold all --tta"
     exit 1
@@ -150,7 +184,11 @@ mkdir -p "$LOG_DIR"
 LOG_FILE="$LOG_DIR/${JOB_NAME}.log"
 
 # Build the Python command
-PYTHON_CMD="python pipeline/${JOB_TYPE}.py"
+if [ "$JOB_TYPE" = "master" ] || [ "$JOB_TYPE" = "benchmark" ]; then
+    PYTHON_CMD="python scripts/master_benchmark.py"
+else
+    PYTHON_CMD="python pipeline/${JOB_TYPE}.py"
+fi
 
 # Print summary
 echo ""

@@ -110,10 +110,9 @@ class DecoderBlock(nn.Module):
         if x.shape[2:] != skip.shape[2:]:
             x = F.interpolate(x, size=skip.shape[2:], mode="trilinear", align_corners=False)
 
-        # Debug: log shapes before cat
-        import sys
-        print(f"[DecoderBlock] x.shape={x.shape}, skip.shape={skip.shape}", file=sys.stderr)
-
+        assert x.shape[2:] == skip.shape[2:], (
+            f"DecoderBlock spatial mismatch: upsampled={x.shape[2:]} vs skip={skip.shape[2:]}"
+        )
         return self.res(torch.cat([x, skip], dim=1))
 
 
@@ -189,6 +188,7 @@ class ISLES26Model(nn.Module):
 
         # ── Conditioning ─────────────────────────────────────────────────────
         self.conditioner: BaseConditioner = build_conditioner(cfg)
+        self.conditioner.build_projection(bn)
 
         # ── Decoder ───────────────────────────────────────────────────────────
         self.dec3 = DecoderBlock(bn,    ch[4], ch[4])  # 320+256 → 256

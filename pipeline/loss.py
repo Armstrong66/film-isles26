@@ -52,65 +52,47 @@ def weighted_cross_entropy(
     scan_weights: torch.Tensor,   # (B,) per-scan weight
 ) -> torch.Tensor:
     """
-    Cross-entropy with per-scan weighting.
-    scan_weights are applied at the sample level before averaging.
+    Cross-entropy with per-scan weighting, fully vectorized across batch.
     """
-    B = logits.shape[0]
-    losses = torch.stack([
-        F.cross_entropy(logits[i:i+1], target[i:i+1])
-        for i in range(B)
-    ])
-    return (losses * scan_weights).mean()
+    ce_per_voxel = F.cross_entropy(logits, target, reduction="none")  # (B, H, W, D)
+    ce_per_sample = ce_per_voxel.mean(dim=(1, 2, 3))                  # (B,)
+    return (ce_per_sample * scan_weights).mean()
 
 
 def boundary_focal_loss(
-    probs:  torch.Tensor,   # (B, H, W, D) — class-1 probabilities
-    target: torch.Tensor,   # (B, H, W, D) — binary float mask
+    logits: torch.Tensor,   # (B, 2, H, W, D) raw logits in float32
+    target: torch.Tensor,   # (B, H, W, D) binary float mask
     gamma:  float = 2.0,
-    smooth: float = 1e-5,
     eps:    float = 1e-7,
 ) -> torch.Tensor:
     """
-    Focal loss computed on lesion boundary voxels only.
+    Numerically stable focal loss computed directly on logits with boundary weighting.
 
     Boundary is approximated as the XOR between the mask and its
-    max-pooled dilation — a lightweight boundary extraction that
-    avoids importing scipy or computing distance transforms.
-
-    Upweights uncertain boundary voxels; standard focal elsewhere.
-
-    Uses clamping to prevent inf/nan from extreme values.
+    max-pooled dilation. Uses binary_cross_entropy_with_logits for log-sum-exp
+    stability and avoids division-by-zero gradient explosions.
     """
-    # Ensure float32 and valid range — catches float16 overflow
-    probs  = probs.float().clamp(eps, 1.0 - eps)
-    target = target.float()
-
-    # Skip entirely if target is empty (no lesion in patch)
     if target.sum() == 0:
-        return torch.tensor(0.0, device=probs.device, requires_grad=False)
+        return torch.tensor(0.0, device=logits.device, dtype=torch.float32)
+
+    # Class-1 logit difference for binary segmentation
+    logit_diff = logits[:, 1] - logits[:, 0]  # (B, H, W, D)
+
+    # Stable BCE with logits
+    bce = F.binary_cross_entropy_with_logits(logit_diff, target, reduction="none")
+
+    # Detached focal modulating factor prevents explosive higher-order gradients
+    prob_1 = torch.sigmoid(logit_diff)
+    p_t = prob_1 * target + (1.0 - prob_1) * (1.0 - target)
+    focal_weight = (1.0 - p_t).clamp(0.0, 1.0).pow(gamma).detach()
 
     # Dilate mask by 1 voxel using max pooling
     mask_dilated = F.max_pool3d(
         target.unsqueeze(1), kernel_size=3, stride=1, padding=1
     ).squeeze(1)
-    boundary     = (mask_dilated - target).clamp(0, 1)
-
-    p_t          = probs * target + (1 - probs) * (1 - target)
-    p_t          = p_t.clamp(eps, 1.0 - eps)
-    focal_weight = (1.0 - p_t).pow(gamma).clamp(0, 10.0)  # cap focal weight
-
-    bce = -(
-        target * torch.log(probs) +
-        (1.0 - target) * torch.log(1.0 - probs)
-    )
-    bce = bce.clamp(0, 100.0)   # cap individual BCE values
+    boundary = (mask_dilated - target).clamp(0.0, 1.0)
 
     loss = focal_weight * bce * (1.0 + boundary)
-
-    # Final NaN/Inf guard
-    if not torch.isfinite(loss).all():
-        return torch.tensor(0.0, device=probs.device, requires_grad=False)
-
     return loss.mean()
 
 
@@ -187,7 +169,7 @@ class ISLES26Loss(nn.Module):
 
         dice_l     = soft_dice_loss(probs, target_3d)
         ce_l       = weighted_cross_entropy(logits, target_long, scan_weights)
-        boundary_l = boundary_focal_loss(probs, target_3d)
+        boundary_l = boundary_focal_loss(logits, target_3d)
 
         return self.dice_w * dice_l + self.ce_w * ce_l + self.boundary_w * boundary_l
 

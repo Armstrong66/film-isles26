@@ -87,8 +87,25 @@ python pipeline/train.py \
 # Evaluate with Test-Time Augmentation
 python pipeline/evaluate.py \
     --config configs/config.yaml \
-    --fold all \
-    --tta
+### 5. Master Multi-Model Overnight Pipeline & Benchmarking
+
+Run overnight training, automated evaluation, OOM-resilient execution, and Docker/CPU submission verification across all model sizes (`tiny`, `small`, `base`) and tracks (`A`, `C`):
+
+```bash
+# 1. Quick comparative benchmark across all sizes & tracks (Fold 0):
+python scripts/master_benchmark.py --config configs/config_rtx.yaml --fold 0
+
+# 2. Full 5-fold CV overnight training + automatic evaluation across all models:
+python scripts/master_benchmark.py --config configs/config_rtx.yaml --fold all --mode all
+
+# 3. Evaluate existing models and compile a comparison table:
+python scripts/master_benchmark.py --config configs/config_rtx.yaml --mode eval
+
+# 4. Verify Docker / CPU submission latency & shape constraints:
+python scripts/master_benchmark.py --config configs/config_rtx.yaml --mode verify
+
+# 5. Overnight run with auto GPU detection and nohup:
+./scripts/run_job.sh master --mode all --name overnight_all_models
 ```
 
 ---
@@ -98,9 +115,11 @@ python pipeline/evaluate.py \
 For overnight training runs that survive network disconnections:
 
 ```bash
+# Launch master overnight multi-model run
+./scripts/run_job.sh master --mode all --name overnight_bench
+
 # Use the run_job.sh helper script (auto-detects GPU, creates logs)
 ./scripts/run_job.sh preprocess --name preproc_rtx
-nohup bash /path/to/film-isles26/scripts/run_job.sh python pipeline/preprocessing.py --config configs/config_rtx.yaml --workers 8 --name preprocess > /dev/null 2>&1 &
 nohup python pipeline/preprocessing.py --config configs/config_rtx.yaml --workers 8 > /home/derrick/projects/film-isles26/outputs/logs/preprocess.log 2>&1 &
 
 ./scripts/run_job.sh train --fold all --track A --name train_all_folds
@@ -110,49 +129,20 @@ nohup python pipeline/train.py \
     --track A \
     > /home/derrick/projects/film-isles26/outputs/logs/train_trackA.log 2>&1 &
 
-#monitor
-tail -f /data/derrick/isles26/logs/train_trackA.log
-
-nohup python pipeline/train.py \
-    --config configs/config_rtx.yaml \
-    --fold 0 \
-    --track A \
-    > /home/derrick/projects/film-isles26/outputs/logs/train_trackA.log 2>&1 &
-
-nohup python pipeline/train.py \
-    --config configs/config_rtx.yaml \
-    --fold all \
-    --track C \
-    > /home/derrick/projects/film-isles26/outputs/logs/train_trackC.log 2>&1 &
-
-
-./scripts/run_job.sh evaluate --fold all --tta --name eval_all_tta
-
-# Run locally for testing (without nohup)
-./scripts/run_job.sh train --fold 0 --local --name train_fold0_test
-
 # Monitor logs
-tail -f /home/derrick/projects/film-isles26/outputs/logs/train_all_folds.log
-
-# Check running jobs
-ps aux | grep train_all_folds
-
-# Check running jobs
-ps aux | grep python
-
-# View logs
+tail -f /data/derrick/isles26/logs/overnight_bench.log
 tail -f /data/derrick/isles26/logs/train_trackA.log
+
+# Check running jobs
+ps aux | grep master_benchmark
+ps aux | grep python
 
 # Check GPU usage
 watch -n 5 nvidia-smi
-
-To run locally (without nohup) for testing:
-
-# Auto-detect GPU and set CUDA_VISIBLE_DEVICES
-source /path/to/film-isles26/scripts/run_job.sh python pipeline/train.py --config configs/config_rtx.yaml --fold all --track A
 ```
 
 **Job types:**
+- `master` — Master overnight runner (all models, automated eval, OOM resilience, Docker check)
 - `preprocess` — Run preprocessing pipeline
 - `splits` — Generate CV splits
 - `train` — Train model (add `--fold all` for all 5 folds)

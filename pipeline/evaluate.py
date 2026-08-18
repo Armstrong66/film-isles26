@@ -259,9 +259,18 @@ def evaluate_fold(
     _, val_dl = build_dataloaders(cfg, fold, splits, df_meta)
 
     model    = build_model(cfg).to(device)
-    ckpt_dir = Path(cfg.logging.log_dir) / f"track_{cfg.conditioning.track}" / f"fold_{fold}"
+    model_size = cfg.model.get("size", "base")
+    ckpt_dir_size = Path(cfg.logging.log_dir) / f"track_{cfg.conditioning.track}_{model_size}" / f"fold_{fold}"
+    ckpt_dir_legacy = Path(cfg.logging.log_dir) / f"track_{cfg.conditioning.track}" / f"fold_{fold}"
+    if (ckpt_dir_size / "best.pth").exists():
+        ckpt_dir = ckpt_dir_size
+    elif (ckpt_dir_legacy / "best.pth").exists():
+        ckpt_dir = ckpt_dir_legacy
+    else:
+        ckpt_dir = ckpt_dir_size
+
     best_ckpt = ckpt_dir / "best.pth"
-    assert best_ckpt.exists(), f"No checkpoint found at {best_ckpt}. Train fold {fold} first."
+    assert best_ckpt.exists(), f"No checkpoint found at {best_ckpt} (or {ckpt_dir_legacy / 'best.pth'}). Train fold {fold} first."
     load_checkpoint(best_ckpt, model)
 
     scan_records = []
@@ -279,7 +288,7 @@ def evaluate_fold(
 
     log.info(f"Fold {fold} | overall dice={agg['overall']['dice_mean']:.4f} "
              f"± {agg['overall']['dice_std']:.4f}")
-    return {"fold": fold, "aggregate": agg, "scan_records": scan_records}
+    return {"fold": fold, "aggregate": agg, "scan_records": scan_records, "out_dir": str(out_dir)}
 
 
 def main() -> None:
@@ -287,6 +296,8 @@ def main() -> None:
     parser.add_argument("--config",   type=str, default="configs/config.yaml")
     parser.add_argument("--fold",     type=str, default="0")
     parser.add_argument("--track",    type=str, default=None)
+    parser.add_argument("--model-size", type=str, default=None,
+                        help="Model size variant: tiny, small, or base")
     parser.add_argument("--tta",      action="store_true")
     parser.add_argument("--ensemble", action="store_true",
                         help="Average predictions across all fold checkpoints")
@@ -297,6 +308,12 @@ def main() -> None:
     cfg = OmegaConf.load(args.config)
     if args.track:
         cfg = OmegaConf.merge(cfg, {"conditioning": {"track": args.track.upper()}})
+
+    if args.model_size:
+        valid_sizes = ["tiny", "small", "base"]
+        if args.model_size.lower() not in valid_sizes:
+            raise ValueError(f"Invalid model-size '{args.model_size}'. Must be one of: {valid_sizes}")
+        cfg = OmegaConf.merge(cfg, {"model": {"size": args.model_size.lower()}})
 
     Path(cfg.logging.log_dir).mkdir(parents=True, exist_ok=True)
     logging.basicConfig(
