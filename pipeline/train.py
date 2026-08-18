@@ -233,9 +233,16 @@ def run_epoch(
 
             # Sliding window inference for validation
             if not is_train and VAL_INFERER is not None:
-                def _forward(img):
-                    return model(img, meta_vec, meta_text, chronicity, uid)[0]   # finest scale only
-                logits_list = [VAL_INFERER(_forward, image)]
+                def _forward(img_patch: torch.Tensor) -> torch.Tensor:
+                    b = img_patch.shape[0]
+                    mv = meta_vec if meta_vec.shape[0] == b else meta_vec.repeat(b, 1)
+                    mt = meta_text if len(meta_text) == b else meta_text * b
+                    ch = chronicity if len(chronicity) == b else chronicity * b
+                    u = uid if len(uid) == b else uid * b
+                    with autocast(device_type=device.type, enabled=scaler is not None):
+                        return model(img_patch, mv, mt, ch, u)[0]
+
+                logits_list = [VAL_INFERER(inputs=image, network=_forward)]
             else:
                 with autocast(device_type=device.type, enabled=scaler is not None):
                     logits_list = model(image, meta_vec, meta_text, chronicity, uid)

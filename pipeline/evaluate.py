@@ -167,7 +167,8 @@ def evaluate_scan(
 
     # Save probability maps if requested (for interpretability, NOT for Docker)
     if save_probs:
-        prob_map_path = Path(cfg.logging.log_dir) / f"track_{cfg.conditioning.track}" / f"fold_{fold}" / "probs"
+        model_size = cfg.model.get("size", "base")
+        prob_map_path = Path(cfg.logging.log_dir) / f"track_{cfg.conditioning.track}_{model_size}" / f"fold_{fold}" / "probs"
         prob_map_path.mkdir(parents=True, exist_ok=True)
         np.save(prob_map_path / f"{uid}_prob.npy", probs.squeeze().cpu().numpy().astype(np.float32))
 
