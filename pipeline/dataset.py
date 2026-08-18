@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -38,7 +39,14 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 from omegaconf import DictConfig
 
-from .augmentation import get_train_transforms, get_val_transforms
+# Support running as both: python pipeline/dataset.py AND python -m pipeline.dataset
+if __name__ == "__main__":
+    _project_root = Path(__file__).resolve().parent.parent
+    if str(_project_root) not in sys.path:
+        sys.path.insert(0, str(_project_root))
+    from pipeline.augmentation import get_train_transforms, get_val_transforms
+else:
+    from .augmentation import get_train_transforms, get_val_transforms
 
 log = logging.getLogger(__name__)
 

@@ -76,7 +76,7 @@ python pipeline/train.py \
 
 # Train all 5 folds
 python pipeline/train.py \
-    --config configs/config.yaml \
+    --config configs/config_rtx.yaml \
     --fold all \
     --track A
 ```
@@ -101,14 +101,14 @@ For overnight training runs that survive network disconnections:
 # Use the run_job.sh helper script (auto-detects GPU, creates logs)
 ./scripts/run_job.sh preprocess --name preproc_rtx
 nohup bash /path/to/film-isles26/scripts/run_job.sh python pipeline/preprocessing.py --config configs/config_rtx.yaml --workers 8 --name preprocess > /dev/null 2>&1 &
-nohup python pipeline/preprocessing.py --config configs/config_rtx.yaml --workers 8 > /data/derrick/isles26/logs/preprocess.log 2>&1 &
+nohup python pipeline/preprocessing.py --config configs/config_rtx.yaml --workers 8 > /home/derrick/projects/film-isles26/outputs/logs/preprocess.log 2>&1 &
 
 ./scripts/run_job.sh train --fold all --track A --name train_all_folds
 nohup python pipeline/train.py \
     --config configs/config_rtx.yaml \
     --fold all \
     --track A \
-    > /data/derrick/isles26/logs/train_trackA.log 2>&1 &
+    > /home/derrick/projects/film-isles26/outputs/logs/train_trackA.log 2>&1 &
 
 #monitor
 tail -f /data/derrick/isles26/logs/train_trackA.log
@@ -117,13 +117,13 @@ nohup python pipeline/train.py \
     --config configs/config_rtx.yaml \
     --fold 0 \
     --track A \
-    > /data/derrick/isles26/logs/train_trackA.log 2>&1 &
+    > /home/derrick/projects/film-isles26/outputs/logs/train_trackA.log 2>&1 &
 
 nohup python pipeline/train.py \
     --config configs/config_rtx.yaml \
     --fold all \
     --track C \
-    > /data/derrick/isles26/logs/train_trackC.log 2>&1 &
+    > /home/derrick/projects/film-isles26/outputs/logs/train_trackC.log 2>&1 &
 
 
 ./scripts/run_job.sh evaluate --fold all --tta --name eval_all_tta
@@ -132,7 +132,7 @@ nohup python pipeline/train.py \
 ./scripts/run_job.sh train --fold 0 --local --name train_fold0_test
 
 # Monitor logs
-tail -f /data/derrick/isles26/logs/train_all_folds.log
+tail -f /home/derrick/projects/film-isles26/outputs/logs/train_all_folds.log
 
 # Check running jobs
 ps aux | grep train_all_folds

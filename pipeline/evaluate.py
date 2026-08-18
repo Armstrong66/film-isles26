@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -31,9 +32,18 @@ import nibabel as nib
 from omegaconf import OmegaConf, DictConfig
 from tqdm import tqdm
 
-from .dataset import build_dataloaders, build_records
-from .model import build_model, ISLES26Model
-from .train import load_checkpoint
+# Support running as both: python pipeline/evaluate.py AND python -m pipeline.evaluate
+if __name__ == "__main__":
+    _project_root = Path(__file__).resolve().parent.parent
+    if str(_project_root) not in sys.path:
+        sys.path.insert(0, str(_project_root))
+    from pipeline.dataset import build_dataloaders, build_records
+    from pipeline.model import build_model, ISLES26Model
+    from pipeline.train import load_checkpoint
+else:
+    from .dataset import build_dataloaders, build_records
+    from .model import build_model, ISLES26Model
+    from .train import load_checkpoint
 
 log = logging.getLogger(__name__)
 

@@ -24,6 +24,7 @@ import argparse
 import json
 import logging
 import os
+import sys
 import time
 from pathlib import Path
 
@@ -35,9 +36,21 @@ from torch.amp import GradScaler, autocast
 import pandas as pd
 from tqdm import tqdm
 
-from .dataset import build_dataloaders
-from .model import build_model
-from .loss import ISLES26Loss, get_boundary_weight
+# Support running as both: python pipeline/train.py AND python -m pipeline.train
+# Add project root to path if running as a script
+if __name__ == "__main__":
+    _project_root = Path(__file__).resolve().parent.parent
+    if str(_project_root) not in sys.path:
+        sys.path.insert(0, str(_project_root))
+    # Use absolute imports when running as script
+    from pipeline.dataset import build_dataloaders
+    from pipeline.model import build_model
+    from pipeline.loss import ISLES26Loss, get_boundary_weight
+else:
+    # Use relative imports when imported as module
+    from .dataset import build_dataloaders
+    from .model import build_model
+    from .loss import ISLES26Loss, get_boundary_weight
 
 log = logging.getLogger(__name__)
 
