@@ -82,29 +82,35 @@ def cleanup_gpu_memory() -> None:
         torch.cuda.ipc_collect()
 
 
-def get_gpu_memory_info(device: torch.device) -> dict[str, float]:
-    """Return free, total, and allocated VRAM in GB."""
-    if device.type == "cuda" and torch.cuda.is_available():
-        free_bytes, total_bytes = torch.cuda.mem_get_info(device)
-        allocated_bytes = torch.cuda.memory_allocated(device)
-        max_allocated_bytes = torch.cuda.max_memory_allocated(device)
-        return {
-            "free_gb": free_bytes / (1024**3),
-            "total_gb": total_bytes / (1024**3),
-            "allocated_gb": allocated_bytes / (1024**3),
-            "max_allocated_gb": max_allocated_bytes / (1024**3),
-        }
+def get_gpu_memory_info(device_idx: int = 0) -> dict[str, float]:
+    """Return free, total, and allocated VRAM in GB for a GPU index."""
+    if torch.cuda.is_available() and device_idx < torch.cuda.device_count():
+        try:
+            free_bytes, total_bytes = torch.cuda.mem_get_info(device_idx)
+            allocated_bytes = torch.cuda.memory_allocated(device_idx)
+            max_allocated_bytes = torch.cuda.max_memory_allocated(device_idx)
+            return {
+                "free_gb": free_bytes / (1024**3),
+                "total_gb": total_bytes / (1024**3),
+                "allocated_gb": allocated_bytes / (1024**3),
+                "max_allocated_gb": max_allocated_bytes / (1024**3),
+            }
+        except Exception:
+            pass
     return {"free_gb": 0.0, "total_gb": 0.0, "allocated_gb": 0.0, "max_allocated_gb": 0.0}
 
 
-def log_vram_status(device: torch.device, prefix: str = "") -> None:
-    """Log current VRAM status."""
-    if device.type == "cuda":
-        mem = get_gpu_memory_info(device)
-        log.info(
-            f"{prefix}VRAM | Free: {mem['free_gb']:.2f} GB / {mem['total_gb']:.2f} GB | "
-            f"Allocated: {mem['allocated_gb']:.2f} GB (Peak: {mem['max_allocated_gb']:.2f} GB)"
-        )
+def log_vram_status(device: Optional[torch.device | int] = None, prefix: str = "") -> None:
+    """Log current VRAM status across all available GPUs (or specific GPU)."""
+    if torch.cuda.is_available():
+        n_gpus = torch.cuda.device_count()
+        for idx in range(n_gpus):
+            mem = get_gpu_memory_info(idx)
+            dev_name = torch.cuda.get_device_name(idx)
+            log.info(
+                f"{prefix}GPU {idx} ({dev_name}) | Free: {mem['free_gb']:.2f} GB / {mem['total_gb']:.2f} GB | "
+                f"Allocated: {mem['allocated_gb']:.2f} GB (Peak: {mem['max_allocated_gb']:.2f} GB)"
+            )
 
 
 # ── Path & Checkpoint Helpers ──────────────────────────────────────────────────

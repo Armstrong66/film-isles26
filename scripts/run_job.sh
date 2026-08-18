@@ -36,41 +36,55 @@ set -e
 # Default values
 JOB_NAME=""
 JOB_TYPE=""
+USER_GPU=""
 CMD_ARGS=("--config" "configs/config_rtx.yaml")
 LOCAL_MODE=false
 LOG_DIR="/data/derrick/isles26/logs"
 
-# GPU detection function - finds the least busy GPU
-# Always returns a GPU ID (0 or 1), never CPU mode for training
+# GPU detection function - supports DataParallel (multi-GPU) and single-GPU fallback
 detect_gpu() {
+    # If user explicitly specified GPU(s), use that
+    if [ -n "$USER_GPU" ]; then
+        if [ "$USER_GPU" = "all" ]; then
+            echo "0,1"
+        else
+            echo "$USER_GPU"
+        fi
+        return 0
+    fi
+
     if ! command -v nvidia-smi &> /dev/null; then
         echo "0"
         return 0
     fi
 
-    local gpu_count=$(nvidia-smi --query-gpu=count --format=csv,noheader,nounits 2>/dev/null || echo "0")
+    local gpu_count=$(nvidia-smi --query-gpu=count --format=csv,noheader,nounits 2>/dev/null | head -1 || echo "0")
 
-    # If no GPUs or count is 0, default to GPU 0
     if [ -z "$gpu_count" ] || [ "$gpu_count" -eq 0 ]; then
         echo "0"
         return 0
     fi
 
-    # For RTX with 2 GPUs, find the least busy one
+    # For RTX workstation with 2 GPUs:
     if [ "$gpu_count" -ge 2 ]; then
-        local gpu0_mem=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits 2>/dev/null | sed -n '1p')
-        local gpu1_mem=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits 2>/dev/null | sed -n '2p')
-        local gpu0_util=$(nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader,nounits 2>/dev/null | sed -n '1p')
-        local gpu1_util=$(nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader,nounits 2>/dev/null | sed -n '2p')
+        local gpu0_mem=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits 2>/dev/null | sed -n '1p' | tr -d '[:space:]')
+        local gpu1_mem=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits 2>/dev/null | sed -n '2p' | tr -d '[:space:]')
+        local gpu0_util=$(nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader,nounits 2>/dev/null | sed -n '1p' | tr -d '[:space:]')
+        local gpu1_util=$(nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader,nounits 2>/dev/null | sed -n '2p' | tr -d '[:space:]')
 
-        # Default to GPU 0 if any query fails
+        # Default to 0,1 if query fails
         if [ -z "$gpu0_mem" ] || [ -z "$gpu1_mem" ]; then
-            echo "0"
+            echo "0,1"
             return 0
         fi
 
-        # Compare total load (memory + utilization)
-        # Lower total score = less busy
+        # If BOTH GPUs are free (< 4000MB used), enable DataParallel across both (0,1)
+        if [ "$gpu0_mem" -lt 4000 ] && [ "$gpu1_mem" -lt 4000 ]; then
+            echo "0,1"
+            return 0
+        fi
+
+        # If only one GPU is free, pick the least loaded GPU
         local gpu0_load=$((gpu0_mem + gpu0_util))
         local gpu1_load=$((gpu1_mem + gpu1_util))
 
@@ -99,6 +113,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --fold)
             CMD_ARGS+=("--fold" "$2")
+            shift 2
+            ;;
+        --gpu|--gpus)
+            USER_GPU="$2"
             shift 2
             ;;
         --track)
