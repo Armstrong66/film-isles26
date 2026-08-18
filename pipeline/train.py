@@ -93,11 +93,16 @@ def build_optimizer(model: nn.Module, cfg: DictConfig) -> torch.optim.Optimizer:
     """
     Conditioning module gets 10× lower LR than backbone.
     This prevents the FiLM gate from destabilising the backbone early in training.
+    Handles both DataParallel wrapped and unwrapped models.
     """
+    # Handle DataParallel wrapped model
+    if isinstance(model, nn.DataParallel):
+        model = model.module
+
     cond_params    = list(model.conditioner.parameters())
     cond_param_ids = set(id(p) for p in cond_params)
     backbone_params = [p for p in model.parameters()
-                       if id(p) not in cond_param_ids]
+                     if id(p) not in cond_param_ids]
 
     return torch.optim.AdamW([
         {"params": backbone_params,  "lr": cfg.training.lr},
