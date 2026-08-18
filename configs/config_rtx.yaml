@@ -40,16 +40,17 @@ training:
   batch_size:    8
   patch_size:    [128, 128, 128]
   optimizer:     "adamw"
-  lr:            1.0e-3
+  lr:            3.0e-4
   weight_decay:  1.0e-5
   lr_scheduler:  "poly"
   poly_exp:      0.9
-  early_stopping_patience: 50
+  warmup_epochs: 20
+  early_stopping_patience: 75
   mixed_precision: true
-  grad_clip:     1.0
+  grad_clip:     0.5
 
 model:
-  size: "small"    # options: tiny | small | base
+  size: "base"     # ↑ from small — small was under-capacity for 1453 scans
 
 loss:
   dice_weight:       1.0
