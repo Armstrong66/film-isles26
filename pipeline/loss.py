@@ -68,6 +68,7 @@ def boundary_focal_loss(
     target: torch.Tensor,   # (B, H, W, D) — binary float mask
     gamma:  float = 2.0,
     smooth: float = 1e-5,
+    eps:    float = 1e-7,
 ) -> torch.Tensor:
     """
     Focal loss computed on lesion boundary voxels only.
@@ -77,7 +78,12 @@ def boundary_focal_loss(
     avoids importing scipy or computing distance transforms.
 
     Upweights uncertain boundary voxels; standard focal elsewhere.
+
+    Uses clamping to prevent inf/nan from extreme values.
     """
+    # Clamp probs to avoid log(0) or division by zero
+    probs = probs.clamp(eps, 1 - eps)
+
     # Dilate mask by 1 voxel using max pooling
     mask_dilated = F.max_pool3d(
         target.unsqueeze(1).float(), kernel_size=3, stride=1, padding=1
@@ -88,15 +94,19 @@ def boundary_focal_loss(
     p_t         = probs * target + (1 - probs) * (1 - target)
     focal_weight = (1 - p_t).pow(gamma)
 
+    # Cross-entropy with clamping to prevent inf
     bce = -(
-        target * torch.log(probs + smooth) +
-        (1 - target) * torch.log(1 - probs + smooth)
+        target * torch.log(probs + eps) +
+        (1 - target) * torch.log(1 - probs + eps)
     )
 
     # Boundary-upweighted focal loss
     loss = focal_weight * bce
     # Apply boundary mask: boundary voxels get 2× weight
     loss = loss * (1 + boundary)
+
+    # Clamp final loss to prevent inf
+    loss = loss.clamp(0, 1e6)
 
     return loss.mean()
 
@@ -122,7 +132,7 @@ def compute_scan_weights(
     return weights
 
 
-def get_boundary_weight(epoch: int, warmup: int = 50, max_w: float = 0.5) -> float:
+def get_boundary_weight(epoch: int, warmup: int = 100, max_w: float = 0.5) -> float:
     """Ramp boundary focal loss weight from 0 to max_w over warmup epochs."""
     return min(max_w, max_w * epoch / warmup) if warmup > 0 else max_w
 

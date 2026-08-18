@@ -246,7 +246,11 @@ def run_epoch(
 
             # Check for NaN/Inf loss early to prevent gradient corruption
             if torch.isnan(loss) or torch.isinf(loss):
-                log.error(f"Invalid loss detected! Skipping batch. loss={loss.item():.4f} Loss dict: {loss_dict}")
+                log.error(f"Invalid loss detected! Skipping batch. loss={loss.item() if not torch.isnan(loss) else 'nan'} Loss dict: {loss_dict}")
+                # Zero out any partial gradients before continuing
+                optimizer.zero_grad(set_to_none=True)
+                if scaler:
+                    scaler.update()
                 continue
 
             if is_train:
