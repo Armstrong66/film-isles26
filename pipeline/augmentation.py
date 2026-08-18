@@ -121,19 +121,66 @@ class ChronicCavityPerturbation(MapTransform):
         return data
 
 
+class PosNegCropd(MapTransform):
+    """
+    Balanced foreground/background 3D patch crop for medical segmentation.
+    Samples a lesion-centered patch with probability pos_prob (default 0.67),
+    or a random patch with probability 1 - pos_prob (0.33).
+    Guarantees consistent patch shapes and prevents empty-patch dominance.
+    """
+
+    def __init__(
+        self,
+        keys: KeysCollection = ("image", "mask"),
+        mask_key: str = "mask",
+        roi_size: tuple[int, int, int] | list[int] = (128, 128, 128),
+        pos_prob: float = 0.67,
+    ) -> None:
+        super().__init__(keys)
+        self.mask_key = mask_key
+        self.roi_size = tuple(roi_size)
+        self.pos_prob = pos_prob
+
+    def __call__(self, data: dict) -> dict:
+        mask = data[self.mask_key]
+        spatial_shape = mask.shape[1:]  # (H, W, D)
+
+        # Check if foreground lesion voxels exist
+        mask_np = mask[0].cpu().numpy() if isinstance(mask, torch.Tensor) else mask[0]
+        has_lesion = (mask_np > 0).any()
+
+        if has_lesion and np.random.random() < self.pos_prob:
+            indices = np.argwhere(mask_np > 0)
+            center = indices[np.random.randint(len(indices))]
+        else:
+            center = [np.random.randint(0, s) for s in spatial_shape]
+
+        slices = []
+        for c, s, roi_s in zip(center, spatial_shape, self.roi_size):
+            if s <= roi_s:
+                start = 0
+            else:
+                start = max(0, min(int(c) - roi_s // 2, s - roi_s))
+            slices.append(slice(start, start + roi_s))
+
+        for k in self.keys:
+            data[k] = data[k][:, slices[0], slices[1], slices[2]]
+        return data
+
+
 # ── Standard spatial and intensity transforms ─────────────────────────────────
 
 def _spatial_transforms(prob: float = 0.5, patch_size: list[int] = None) -> list:
-    """If patch_size is provided, crop to fixed size as first transform."""
+    """If patch_size is provided, crop to fixed size using balanced foreground/background crop."""
     transforms = []
 
-    # Crop to fixed patch size first (ensures consistent shapes for batching)
     if patch_size is not None:
         transforms.append(
-            RandSpatialCropd(
+            PosNegCropd(
                 keys=["image", "mask"],
+                mask_key="mask",
                 roi_size=patch_size,
-                random_size=False,
+                pos_prob=0.67,
             )
         )
 

@@ -98,13 +98,22 @@ python scripts/master_benchmark.py --config configs/config_rtx.yaml --fold 0
 # 2. Full 5-fold CV overnight training + automatic evaluation across all models:
 python scripts/master_benchmark.py --config configs/config_rtx.yaml --fold all --mode all
 
-# 3. Evaluate existing models and compile a comparison table:
+# 3. Direct nohup overnight execution (survives SSH disconnect):
+nohup python scripts/master_benchmark.py \
+    --config configs/config_rtx.yaml \
+    --tracks A C \
+    --sizes tiny small base \
+    --fold 0 \
+    --mode all \
+    > /home/derrick/projects/film-isles26/outputs/logs/master_benchmark.log 2>&1 &
+
+# 4. Evaluate all ready models (even while other models are still training in background):
 python scripts/master_benchmark.py --config configs/config_rtx.yaml --mode eval
 
-# 4. Verify Docker / CPU submission latency & shape constraints:
+# 5. Verify Docker / CPU submission latency & shape constraints for ready models:
 python scripts/master_benchmark.py --config configs/config_rtx.yaml --mode verify
 
-# 5. Overnight run with auto GPU detection and nohup:
+# 6. Helper script run with auto multi-GPU DataParallel & nohup:
 ./scripts/run_job.sh master --mode all --name overnight_all_models
 ```
 
@@ -115,21 +124,14 @@ python scripts/master_benchmark.py --config configs/config_rtx.yaml --mode verif
 For overnight training runs that survive network disconnections:
 
 ```bash
-# Launch master overnight multi-model run
+# Direct nohup command for master overnight run:
+nohup python scripts/master_benchmark.py --config configs/config_rtx.yaml --fold all --mode all > /home/derrick/projects/film-isles26/outputs/logs/master_benchmark.log 2>&1 &
+
+# Or launch via run_job.sh with auto GPU selection (DataParallel on 2 GPUs):
 ./scripts/run_job.sh master --mode all --name overnight_bench
 
-# Use the run_job.sh helper script (auto-detects GPU, creates logs)
-./scripts/run_job.sh preprocess --name preproc_rtx
-nohup python pipeline/preprocessing.py --config configs/config_rtx.yaml --workers 8 > /home/derrick/projects/film-isles26/outputs/logs/preprocess.log 2>&1 &
-
-./scripts/run_job.sh train --fold all --track A --name train_all_folds
-nohup python pipeline/train.py \
-    --config configs/config_rtx.yaml \
-    --fold all \
-    --track A \
-    > /home/derrick/projects/film-isles26/outputs/logs/train_trackA.log 2>&1 &
-
 # Monitor logs
+tail -f /home/derrick/projects/film-isles26/outputs/logs/master_benchmark.log
 tail -f /data/derrick/isles26/logs/overnight_bench.log
 tail -f /data/derrick/isles26/logs/train_trackA.log
 

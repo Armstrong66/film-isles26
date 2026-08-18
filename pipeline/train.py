@@ -77,13 +77,17 @@ def batch_dice(
     target: torch.Tensor,   # (B, 1, H, W, D)
     smooth: float = 1e-5,
 ) -> float:
-    """Mean Dice over batch. Used for quick epoch-level monitoring."""
+    """Hard binary Dice metric computed at 0.5 threshold with empty-patch handling."""
     probs  = torch.softmax(logits, dim=1)[:, 1]        # (B, H, W, D)
     target = target.squeeze(1).float()                  # (B, H, W, D)
-    inter  = (probs * target).sum(dim=(1, 2, 3))
-    union  = probs.sum(dim=(1, 2, 3)) + target.sum(dim=(1, 2, 3))
-    dice   = (2 * inter + smooth) / (union + smooth)
-    dice = torch.nan_to_num(dice, nan=0.0)  # avoid NaN in dice
+    pred   = (probs > 0.5).float()
+    inter  = (pred * target).sum(dim=(1, 2, 3))
+    union  = pred.sum(dim=(1, 2, 3)) + target.sum(dim=(1, 2, 3))
+
+    both_empty = (target.sum(dim=(1, 2, 3)) == 0) & (pred.sum(dim=(1, 2, 3)) == 0)
+    dice   = (2.0 * inter + smooth) / (union + smooth)
+    dice   = torch.where(both_empty, torch.ones_like(dice), dice)
+    dice   = torch.nan_to_num(dice, nan=0.0)
     return dice.mean().item()
 
 

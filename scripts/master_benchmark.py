@@ -349,8 +349,8 @@ def run_evaluation_step(
     eval_file = ckpt_dir / "eval_aggregate.json"
 
     if not best_ckpt.exists():
-        log.warning(f"⚠️ [SKIP EVAL] No checkpoint found at {best_ckpt}. Model not trained.")
-        return {"status": "NO_CHECKPOINT", "ckpt_dir": str(ckpt_dir)}
+        log.info(f"⏳ [CHECKPOINT PENDING] No checkpoint yet at {best_ckpt}. (Model training in progress or pending).")
+        return {"status": "PENDING_CHECKPOINT", "ckpt_dir": str(ckpt_dir)}
 
     # Skip if already evaluated
     if eval_file.exists() and not force_eval:
