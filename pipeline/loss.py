@@ -81,32 +81,35 @@ def boundary_focal_loss(
 
     Uses clamping to prevent inf/nan from extreme values.
     """
-    # Clamp probs to avoid log(0) or division by zero
-    probs = probs.clamp(eps, 1 - eps)
+    # Ensure float32 and valid range — catches float16 overflow
+    probs  = probs.float().clamp(eps, 1.0 - eps)
+    target = target.float()
+
+    # Skip entirely if target is empty (no lesion in patch)
+    if target.sum() == 0:
+        return torch.tensor(0.0, device=probs.device, requires_grad=False)
 
     # Dilate mask by 1 voxel using max pooling
     mask_dilated = F.max_pool3d(
-        target.unsqueeze(1).float(), kernel_size=3, stride=1, padding=1
+        target.unsqueeze(1), kernel_size=3, stride=1, padding=1
     ).squeeze(1)
-    boundary = (mask_dilated - target).clamp(0, 1)   # ring around lesion
+    boundary     = (mask_dilated - target).clamp(0, 1)
 
-    # Focal weight: (1 - p_t)^gamma
-    p_t         = probs * target + (1 - probs) * (1 - target)
-    focal_weight = (1 - p_t).pow(gamma)
+    p_t          = probs * target + (1 - probs) * (1 - target)
+    p_t          = p_t.clamp(eps, 1.0 - eps)
+    focal_weight = (1.0 - p_t).pow(gamma).clamp(0, 10.0)  # cap focal weight
 
-    # Cross-entropy with clamping to prevent inf
     bce = -(
-        target * torch.log(probs + eps) +
-        (1 - target) * torch.log(1 - probs + eps)
+        target * torch.log(probs) +
+        (1.0 - target) * torch.log(1.0 - probs)
     )
+    bce = bce.clamp(0, 100.0)   # cap individual BCE values
 
-    # Boundary-upweighted focal loss
-    loss = focal_weight * bce
-    # Apply boundary mask: boundary voxels get 2× weight
-    loss = loss * (1 + boundary)
+    loss = focal_weight * bce * (1.0 + boundary)
 
-    # Clamp final loss to prevent inf
-    loss = loss.clamp(0, 1e6)
+    # Final NaN/Inf guard
+    if not torch.isfinite(loss).all():
+        return torch.tensor(0.0, device=probs.device, requires_grad=False)
 
     return loss.mean()
 
@@ -174,6 +177,10 @@ class ISLES26Loss(nn.Module):
         target:       torch.Tensor,   # (B, 1, H, W, D) float
         scan_weights: torch.Tensor,   # (B,)
     ) -> torch.Tensor:
+        # Fix 1: Cast to float32 - intermediate decoder logits overflow float16
+        logits = logits.float()
+        target = target.float()
+
         probs       = torch.softmax(logits, dim=1)[:, 1]   # (B, H, W, D)
         target_3d   = target.squeeze(1)                    # (B, H, W, D)
         target_long = target_3d.long()
@@ -200,7 +207,8 @@ class ISLES26Loss(nn.Module):
             small_weight = self.small_weight,
         ).to(target.device)
 
-        total       = torch.tensor(0.0, device=target.device, requires_grad=True)
+        # Fix 3: Use None pattern to avoid leaf tensor issues
+        total       = None
         loss_dict   = {}
         ds_weights  = self.DS_WEIGHTS[:len(multi_scale_logits)]
         # Normalise weights so they sum to 1
@@ -218,8 +226,11 @@ class ISLES26Loss(nn.Module):
 
             scale_loss = self._compute_scale_loss(logits, t_scaled, scan_weights)
             weighted   = (ds_w / ds_weight_sum) * scale_loss
-            total      = total + weighted
+
+            # Fix 3: Use None pattern
+            total = weighted if total is None else total + weighted
+
             loss_dict[f"scale_{scale_idx}"] = scale_loss.detach().item()
 
-        loss_dict["total"] = total.detach().item()
+        loss_dict["total"] = total.detach().item() if total is not None else 0.0
         return total, loss_dict
