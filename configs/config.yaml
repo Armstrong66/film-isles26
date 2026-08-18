@@ -38,7 +38,7 @@ split:
 
 training:
   epochs:        1000
-  batch_size:    8      # Increased for 96GB RTX VRAM
+  batch_size:    4      # Reduced for 2x GPU setup with base model
   patch_size:    [128, 128, 128]
   optimizer:     "adamw"
   lr:            3.0e-4

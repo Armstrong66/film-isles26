@@ -37,7 +37,7 @@ split:
 
 training:
   epochs:        1000
-  batch_size:    8
+  batch_size:    4    # Reduced from 8 to fit 2x GPUs with base model
   patch_size:    [128, 128, 128]
   optimizer:     "adamw"
   lr:            3.0e-4
