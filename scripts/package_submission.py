@@ -156,8 +156,14 @@ def build_and_export_docker(
 
     log.info(f"\n🐳 Building Docker image: '{image_tag}' ...")
     t0 = time.time()
+    dockerfile_path = PROJECT_ROOT / "Dockerfile"
     res_build = subprocess.run(
-        ["docker", "build", "-t", image_tag, "."],
+        [
+            "docker", "build",
+            "-t", image_tag,
+            "-f", str(dockerfile_path),
+            str(PROJECT_ROOT),
+        ],
         cwd=PROJECT_ROOT,
     )
     if res_build.returncode != 0:
@@ -214,7 +220,7 @@ def main() -> None:
         help="Path to config file"
     )
     parser.add_argument(
-        "--track", type=str, default="A", choices=["A", "C", "NONE"],
+        "--track", "--train", dest="track", type=str, default="A", choices=["A", "C", "NONE"],
         help="Conditioning track to package (default: A)"
     )
     parser.add_argument(

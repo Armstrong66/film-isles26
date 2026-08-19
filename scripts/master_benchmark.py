@@ -483,7 +483,7 @@ def main() -> None:
     )
     parser.add_argument("--config", type=str, default="configs/config.yaml",
                         help="Path to master config (or config_rtx.yaml)")
-    parser.add_argument("--tracks", nargs="+", default=["A", "C"],
+    parser.add_argument("--tracks", "--track", "--train", dest="tracks", nargs="+", default=["A", "C"],
                         help="Conditioning tracks to include: A, C, or NONE (default: A C)")
     parser.add_argument("--sizes", nargs="+", default=["tiny", "small", "base"],
                         help="Model sizes to include: tiny, small, base (default: tiny small base)")
