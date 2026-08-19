@@ -56,17 +56,13 @@ jobs:
 
       - name: Verify Submission Bundle & Config
         run: |
-          TRACK="${{ inputs.track || 'A' }}"
-          SIZE="${{ inputs.size || 'tiny' }}"
+          TRACK="${{ github.event.inputs.track }}"
+          SIZE="${{ github.event.inputs.size }}"
+          if [ -z "$TRACK" ]; then TRACK="A"; fi
+          if [ -z "$SIZE" ]; then SIZE="tiny"; fi
           echo "Preparing submission bundle for Track: $TRACK, Size: $SIZE"
           
-          # Ensure checkpoints directory exists and has at least one weight file
           mkdir -p checkpoints
-          if [ ! -f checkpoints/fold_0_best.pth ] && [ ! -f checkpoints/best.pth ]; then
-            echo "⚠️ Looking for checkpoints in outputs/logs if present..."
-            python scripts/package_submission.py --track "$TRACK" --size "$SIZE" || true
-          fi
-
           # Verify checkpoint existence
           if [ ! -f checkpoints/fold_0_best.pth ] && [ -z "$(ls -A checkpoints/*.pth 2>/dev/null)" ]; then
             echo "❌ Error: No checkpoint found in checkpoints/."
@@ -94,6 +90,6 @@ jobs:
       - name: Upload Submission Container Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: isles26_submission_${{ inputs.track || 'A' }}_${{ inputs.size || 'tiny' }}
+          name: isles26_submission_container
           path: isles26_submission.tar.gz
           retention-days: 14

@@ -31,12 +31,10 @@ RUN pip install --no-cache-dir \
 COPY pipeline/ ./pipeline/
 COPY utils/ /opt/algorithm/utils/
 COPY configs/ /opt/algorithm/configs/
+COPY checkpoints/ /opt/algorithm/checkpoints/
 
 # Copy entrypoint
 COPY entrypoint.py /opt/algorithm/
-
-# Create checkpoints directory (mount at runtime)
-RUN mkdir -p /opt/algorithm/checkpoints
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
