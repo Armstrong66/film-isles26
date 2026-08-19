@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install Python dependencies
 # Note: We use smaller versions of large models to fit in 32GB RAM
 RUN pip install --no-cache-dir \
-    nibabel==3.2.6 \
+    nibabel==5.2.1 \
     monai==1.3.0 \
     omegaconf==2.3.0 \
     scikit-learn==1.5.0 \
