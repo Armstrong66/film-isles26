@@ -1,0 +1,99 @@
+name: Build & Export ISLES 2026 Submission Container
+
+on:
+  workflow_dispatch:
+    inputs:
+      track:
+        description: "Conditioning Track (A, C, or NONE)"
+        required: true
+        default: "A"
+        type: choice
+        options:
+          - "A"
+          - "C"
+          - "NONE"
+      size:
+        description: "Model Size (tiny, small, base)"
+        required: true
+        default: "tiny"
+        type: choice
+        options:
+          - "tiny"
+          - "small"
+          - "base"
+  push:
+    paths:
+      - "checkpoints/**"
+      - "Dockerfile"
+      - "entrypoint.py"
+      - "pipeline/**"
+      - "configs/**"
+      - ".github/workflows/build_submission.yml"
+    branches:
+      - main
+      - master
+
+jobs:
+  build-and-export:
+    name: Build Docker Container & Export Submission Archive
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install Packaging Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install omegaconf
+
+      - name: Verify Submission Bundle & Config
+        run: |
+          TRACK="${{ inputs.track || 'A' }}"
+          SIZE="${{ inputs.size || 'tiny' }}"
+          echo "Preparing submission bundle for Track: $TRACK, Size: $SIZE"
+          
+          # Ensure checkpoints directory exists and has at least one weight file
+          mkdir -p checkpoints
+          if [ ! -f checkpoints/fold_0_best.pth ] && [ ! -f checkpoints/best.pth ]; then
+            echo "⚠️ Looking for checkpoints in outputs/logs if present..."
+            python scripts/package_submission.py --track "$TRACK" --size "$SIZE" || true
+          fi
+
+          # Verify checkpoint existence
+          if [ ! -f checkpoints/fold_0_best.pth ] && [ -z "$(ls -A checkpoints/*.pth 2>/dev/null)" ]; then
+            echo "❌ Error: No checkpoint found in checkpoints/."
+            echo "Please ensure checkpoints/fold_0_best.pth is committed and pushed to git."
+            exit 1
+          fi
+          echo "✓ Checkpoint verified:"
+          ls -lh checkpoints/
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker Image
+        run: |
+          echo "🐳 Building Docker image isles26-submission..."
+          docker build -t isles26-submission -f Dockerfile .
+
+      - name: Export & Compress Submission Image (.tar.gz)
+        run: |
+          echo "📦 Exporting Docker image to isles26_submission.tar.gz for Grand Challenge..."
+          docker save isles26-submission | gzip -c > isles26_submission.tar.gz
+          ls -lh isles26_submission.tar.gz
+          echo "✓ Container archive exported successfully."
+
+      - name: Upload Submission Container Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: isles26_submission_${{ inputs.track || 'A' }}_${{ inputs.size || 'tiny' }}
+          path: isles26_submission.tar.gz
+          retention-days: 14

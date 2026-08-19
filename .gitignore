@@ -7,9 +7,14 @@
 
 # Directories for data and outputs
 data/
-checkpoints/
 logs/
+outputs/logs/
 processed/
+
+# Checkpoints (allow submission weights)
+!checkpoints/
+!checkpoints/*.pth
+!checkpoints/*.json
 
 # Python cache
 __pycache__/
@@ -58,11 +63,9 @@ dist/
 *.log
 logs/*.log
 
-# Model outputs
-*.pth
-*.ckpt
-best.pth
-last.pth
+# Model outputs (root level)
+/best.pth
+/last.pth
 
 # OS
 .DS_Store

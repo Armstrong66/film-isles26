@@ -157,17 +157,24 @@ def build_and_export_docker(
     log.info(f"\n🐳 Building Docker image: '{image_tag}' ...")
     t0 = time.time()
     dockerfile_path = PROJECT_ROOT / "Dockerfile"
-    res_build = subprocess.run(
-        [
-            "docker", "build",
-            "-t", image_tag,
-            "-f", str(dockerfile_path),
-            str(PROJECT_ROOT),
-        ],
-        cwd=PROJECT_ROOT,
-    )
+    
+    cmd = [
+        "docker", "build",
+        "-t", image_tag,
+        "-f", str(dockerfile_path),
+        str(PROJECT_ROOT),
+    ]
+
+    res_build = subprocess.run(cmd, cwd=PROJECT_ROOT)
     if res_build.returncode != 0:
-        log.error("❌ Docker build failed.")
+        log.error(
+            f"❌ Docker build failed.\n"
+            f"💡 If you encountered 'permission denied while trying to connect to the docker API':\n"
+            f"   1. Run this command once to grant Docker permissions to your user:\n"
+            f"      sudo usermod -aG docker $USER && newgrp docker\n"
+            f"   2. Or run the build script with sudo:\n"
+            f"      sudo ./build_and_export.sh"
+        )
         return False
 
     log.info(f"✓ Docker image built successfully in {time.time() - t0:.1f}s")
