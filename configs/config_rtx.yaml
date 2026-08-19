@@ -45,7 +45,7 @@ training:
   lr_scheduler:  "poly"
   poly_exp:      0.9
   warmup_epochs: 20
-  early_stopping_patience: 75
+  early_stopping_patience: 15
   mixed_precision: true
   grad_clip:     0.5
 

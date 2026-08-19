@@ -98,12 +98,32 @@ def load_fold_model(cfg: dict, fold: int, device: torch.device) -> torch.nn.Modu
 
 
 def load_all_folds(cfg: dict, device: torch.device) -> list[torch.nn.Module]:
-    """Load all 5 fold models at startup (not per-scan)."""
+    """Load all available fold models at startup (supports 1 to 5 folds or single checkpoint)."""
     timer = Timer("load_all_folds")
     models = []
+    ckpt_dir = Path("/opt/algorithm/checkpoints")
+
     for fold in range(5):
-        models.append(load_fold_model(cfg, fold, device))
-    timer.checkpoint("(all 5 folds loaded)")
+        ckpt_path = ckpt_dir / f"fold_{fold}_best.pth"
+        if ckpt_path.exists():
+            models.append(load_fold_model(cfg, fold, device))
+
+    if len(models) == 0:
+        # Fallback: look for any .pth checkpoint in checkpoints/
+        any_ckpts = list(ckpt_dir.glob("*.pth"))
+        if any_ckpts:
+            log.info(f"Loading checkpoint {any_ckpts[0]}")
+            from pipeline.model import build_model
+            model = build_model(cfg)
+            model.load_state_dict(torch.load(any_ckpts[0], map_location=device, weights_only=True))
+            model.to(device)
+            model.eval()
+            models.append(model)
+        else:
+            raise FileNotFoundError(f"No checkpoints found in {ckpt_dir}")
+
+    log.info(f"Loaded {len(models)} model checkpoints for ensemble inference.")
+    timer.checkpoint(f"({len(models)} models loaded)")
     return models
 
 

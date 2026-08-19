@@ -167,6 +167,36 @@ See `scripts/run_job.sh --help` for full usage.
 
 ---
 
+## Docker Submission Packaging
+
+Package, build, and export the Docker container for Grand Challenge submission:
+
+```bash
+# 1. Package best available model (auto-copies checkpoints + config):
+python scripts/package_submission.py --track A --size tiny
+
+# 2. Package AND build Docker image + export .tar.gz (ready for upload):
+python scripts/package_submission.py --track A --size tiny --build --export
+
+# 3. Package all 5 folds for ensemble submission:
+python scripts/package_submission.py --track A --size base --folds all --build --export
+
+# 4. Auto-package best model from master benchmark pipeline:
+python scripts/master_benchmark.py --config configs/config_rtx.yaml --mode package
+
+# 5. Full pipeline: train + eval + verify + auto-package + build Docker:
+python scripts/master_benchmark.py --config configs/config_rtx.yaml --mode all --build-docker
+```
+
+**What `package_submission.py` does:**
+1. Finds trained `best.pth` checkpoints for the specified track/size/folds
+2. Copies them into `checkpoints/fold_0_best.pth`, `fold_1_best.pth`, etc.
+3. Saves a submission config with the correct track and model size
+4. Builds Docker image: `docker build -t isles26-submission .`
+5. Exports `.tar.gz` container: `docker save | gzip > isles26_submission.tar.gz`
+
+---
+
 ## Repository Structure
 
 ```

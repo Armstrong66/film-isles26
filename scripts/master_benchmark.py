@@ -271,9 +271,19 @@ def run_training_step(
             with open(history_file, "r") as f:
                 history = json.load(f)
             best_dice = max(row.get("val_dice", 0.0) for row in history) if history else 0.0
+            best_epoch = -1
+            for row in history:
+                if row.get("val_dice") == best_dice:
+                    best_epoch = row.get("epoch", -1)
+            total_epochs = model_cfg.training.epochs
+            stopped_early = len(history) < total_epochs
             return {
                 "status": "SKIPPED_ALREADY_TRAINED",
                 "best_val_dice": best_dice,
+                "best_epoch": best_epoch,
+                "epochs_trained": len(history),
+                "total_epochs_configured": total_epochs,
+                "stopped_early": stopped_early,
                 "history_path": str(history_file),
                 "ckpt_dir": str(ckpt_dir),
             }
@@ -289,10 +299,16 @@ def run_training_step(
         train_res = train_fold(model_cfg, fold, splits, df_meta, device)
         elapsed = time.time() - t_start
         cleanup_gpu_memory()
+        epochs_trained = train_res.get("epochs_trained", 1)
         return {
             "status": "TRAINED_SUCCESS",
             "best_val_dice": train_res.get("best_val_dice", 0.0),
+            "best_epoch": train_res.get("best_epoch", -1),
+            "epochs_trained": epochs_trained,
+            "total_epochs_configured": train_res.get("total_epochs_configured", model_cfg.training.epochs),
+            "stopped_early": train_res.get("stopped_early", False),
             "train_time_sec": elapsed,
+            "sec_per_epoch": elapsed / max(1, epochs_trained),
             "ckpt_dir": str(ckpt_dir),
         }
     except torch.cuda.OutOfMemoryError as e:
@@ -417,8 +433,9 @@ def format_summary_table(records: list[dict[str, Any]]) -> str:
     """Format benchmark records into a clean Markdown table."""
     headers = [
         "Track", "Size", "Fold", "Status", "Params",
+        "Epochs", "Best Ep", "Early Stop",
         "Val Dice", "Eval Dice", "HD95", "Prec", "Rec",
-        "GPU (ms)", "CPU (ms)"
+        "Train(s)", "s/Ep", "GPU(ms)", "CPU(ms)"
     ]
 
     rows = []
@@ -428,15 +445,20 @@ def format_summary_table(records: list[dict[str, Any]]) -> str:
         fold = str(r.get("fold", "-"))
         status = r.get("status", "-")
         params = f"{r.get('params', 0):,}" if r.get('params') else "-"
+        epochs = f"{r.get('epochs_trained', '-')}/{r.get('total_epochs_configured', '-')}" if r.get("epochs_trained") is not None else "-"
+        best_ep = str(r.get("best_epoch", "-")) if r.get("best_epoch") is not None else "-"
+        early = "Yes" if r.get("stopped_early") else ("No" if r.get("stopped_early") is not None and r.get("epochs_trained") is not None else "-")
         val_dice = f"{r.get('best_val_dice', 0.0):.4f}" if r.get("best_val_dice") is not None else "-"
         eval_dice = f"{r.get('eval_dice', 0.0):.4f}" if r.get("eval_dice") is not None else "-"
         hd95 = f"{r.get('eval_hd95', 0.0):.2f}" if r.get("eval_hd95") is not None else "-"
         prec = f"{r.get('eval_prec', 0.0):.4f}" if r.get("eval_prec") is not None else "-"
         rec = f"{r.get('eval_rec', 0.0):.4f}" if r.get("eval_rec") is not None else "-"
+        train_s = f"{r.get('train_time_sec', 0.0):.0f}" if r.get("train_time_sec") is not None else "-"
+        s_ep = f"{r.get('sec_per_epoch', 0.0):.1f}" if r.get("sec_per_epoch") is not None else "-"
         gpu_ms = f"{r.get('gpu_latency_ms', 0.0):.1f}" if r.get("gpu_latency_ms") and r.get("gpu_latency_ms") > 0 else "-"
         cpu_ms = f"{r.get('cpu_latency_ms', 0.0):.1f}" if r.get("cpu_latency_ms") else "-"
 
-        rows.append([track, size, fold, status, params, val_dice, eval_dice, hd95, prec, rec, gpu_ms, cpu_ms])
+        rows.append([track, size, fold, status, params, epochs, best_ep, early, val_dice, eval_dice, hd95, prec, rec, train_s, s_ep, gpu_ms, cpu_ms])
 
     col_widths = [len(h) for h in headers]
     for row in rows:
@@ -468,14 +490,16 @@ def main() -> None:
     parser.add_argument("--fold", type=str, default="0",
                         help="Fold(s) to run: 0, 1, 2, 3, 4, or 'all'")
     parser.add_argument("--mode", type=str, default="all",
-                        choices=["all", "train", "eval", "verify"],
-                        help="Execution mode: all (train+eval+verify), train, eval, verify")
+                        choices=["all", "train", "eval", "verify", "package"],
+                        help="Execution mode: all (train+eval+verify), train, eval, verify, package (Docker)")
     parser.add_argument("--tta", action="store_true",
                         help="Enable test-time augmentation for evaluation")
     parser.add_argument("--force-retrain", action="store_true",
                         help="Force retraining even if checkpoints exist")
     parser.add_argument("--force-eval", action="store_true",
                         help="Force re-evaluation even if eval_aggregate.json exists")
+    parser.add_argument("--build-docker", action="store_true",
+                        help="Build and export Docker submission container after benchmarking")
     parser.add_argument("--dry-run", action="store_true",
                         help="Quick test run on a synthetic batch")
 
@@ -552,6 +576,10 @@ def main() -> None:
                         rec["best_val_dice"] = train_out["best_val_dice"]
                     if "train_time_sec" in train_out:
                         rec["train_time_sec"] = train_out["train_time_sec"]
+                    # Epoch-level training metadata
+                    for key in ["best_epoch", "epochs_trained", "total_epochs_configured", "stopped_early", "sec_per_epoch"]:
+                        if key in train_out:
+                            rec[key] = train_out[key]
 
                 # 2. Evaluation phase
                 if args.mode in ["all", "eval"] and len(splits) > 0:
@@ -607,6 +635,45 @@ def main() -> None:
     log.info(f"✅ Benchmark results saved to:")
     log.info(f"   CSV:  {summary_csv}")
     log.info(f"   JSON: {summary_json}")
+
+    # ── Docker Packaging Phase ────────────────────────────────────────────────
+    if args.mode in ["all", "package"] or args.build_docker:
+        completed = [r for r in benchmark_records if r.get("status") == "COMPLETED"]
+        if completed:
+            # Auto-select best model by eval_dice
+            best_rec = max(completed, key=lambda r: r.get("eval_dice", 0.0))
+            best_track = best_rec["track"]
+            best_size = best_rec["size"]
+            best_fold = best_rec["fold"]
+            log.info(f"\n{'='*80}")
+            log.info(f"🐳 DOCKER PACKAGING — Best Model: Track={best_track}, Size={best_size}, Fold={best_fold}")
+            log.info(f"   Eval Dice: {best_rec.get('eval_dice', 0.0):.4f}")
+            log.info(f"{'='*80}")
+
+            try:
+                from scripts.package_submission import prepare_submission_bundle, build_and_export_docker
+                ok = prepare_submission_bundle(
+                    cfg_path=args.config,
+                    track=best_track,
+                    size=best_size,
+                    folds=[best_fold],
+                    target_dir=Path(__file__).resolve().parent.parent,
+                )
+                if ok and args.build_docker:
+                    output_tar = log_dir / f"isles26_{best_track}_{best_size}_fold{best_fold}.tar.gz"
+                    build_and_export_docker(
+                        image_tag=f"isles26-{best_track.lower()}-{best_size}",
+                        output_tar=output_tar,
+                    )
+                elif ok:
+                    log.info(
+                        f"✅ Submission bundle staged. To build Docker image, re-run with --build-docker or:\n"
+                        f"   python scripts/package_submission.py --track {best_track} --size {best_size} --build --export"
+                    )
+            except Exception as e:
+                log.warning(f"Docker packaging step failed: {e}", exc_info=True)
+        else:
+            log.warning("⚠️ No COMPLETED models found — skipping Docker packaging.")
 
 
 if __name__ == "__main__":

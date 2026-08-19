@@ -417,8 +417,25 @@ def train_fold(
     with open(history_path, "w") as f:
         json.dump(history, f, indent=2)
 
-    log.info(f"Fold {fold} complete | best_val_dice={best_val_dice:.4f} | history: {history_path}")
-    return {"fold": fold, "best_val_dice": best_val_dice, "history_path": str(history_path)}
+    stopped_early = no_improve >= patience
+    best_epoch = -1
+    for row in history:
+        if row.get("val_dice") == best_val_dice:
+            best_epoch = row.get("epoch", -1)
+
+    log.info(
+        f"Fold {fold} complete | best_val_dice={best_val_dice:.4f} (at epoch {best_epoch}) | "
+        f"epochs_trained={len(history)}/{cfg.training.epochs} | stopped_early={stopped_early} | history: {history_path}"
+    )
+    return {
+        "fold": fold,
+        "best_val_dice": best_val_dice,
+        "best_epoch": best_epoch,
+        "epochs_trained": len(history),
+        "total_epochs_configured": cfg.training.epochs,
+        "stopped_early": stopped_early,
+        "history_path": str(history_path),
+    }
 
 
 # ── Main ───────────────────────────────────────────────────────────────────────
