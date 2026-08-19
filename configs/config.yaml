@@ -1,93 +1,108 @@
-# =============================================================================
-# ISLES 2026 — Master Pipeline Config
-# All pipeline modules read from this file via OmegaConf.
-# Track-specific overrides are in configs/track_*.yaml
-# =============================================================================
-
-# RTX DATA PATHS
 data:
-  root:          "/data/derrick/isles26/raw/ATLAS3_Training_Raw"
-  images_dir:    "images"
-  masks_dir:     "masks"
-  meta_csv:      "metadata/metadata.csv"
-  inventory:     "inventory.json"
-  processed_dir: "/data/derrick/isles26/processed"
-  n_splits:      5                             # CV folds
-  seed:          42
-
+  root: /data/derrick/isles26/raw/ATLAS3_Training_Raw
+  images_dir: images
+  masks_dir: masks
+  meta_csv: metadata/metadata.csv
+  inventory: inventory.json
+  processed_dir: /data/derrick/isles26/processed
+  n_splits: 5
+  seed: 42
 preprocessing:
-  target_orientation: "RAS"          # canonical orientation
-  normalization: "per_scan_zscore"   # confirmed by EDA (inter-site CV=1.453)
-  clip_percentiles: [0.5, 99.5]      # clip before z-score
-  target_shape: [160, 256, 256]      # FIXED: (H, W, D) for consistent batching
-  resample: true                     # FIXED: enable resampling
-  num_workers: 4
-
+  target_orientation: RAS
+  normalization: per_scan_zscore
+  clip_percentiles:
+  - 0.5
+  - 99.5
+  target_shape:
+  - 160
+  - 256
+  - 256
+  resample: true
+  num_workers: 8
 chronicity:
-  # Derived thresholds (clinical standard)
-  acute_max_days:    7
+  acute_max_days: 7
   subacute_max_days: 90
-  # Embedding dim for unknown/missing metadata
-  unknown_token: "unknown"
-  categories: ["acute", "subacute", "chronic", "unknown"]
-
+  unknown_token: unknown
+  categories:
+  - acute
+  - subacute
+  - chronic
+  - unknown
 split:
-  stratify_by: ["CHRONICITY_DERIVED", "SITE"]   # joint stratification
-  test_size: 0.0                                  # no held-out; use CV only
-  val_fold: 0                                     # fold used as validation
-
+  stratify_by:
+  - CHRONICITY_DERIVED
+  - SITE
+  test_size: 0.0
+  val_fold: 0
 training:
-  epochs:        1000
-  batch_size:    4      # Reduced for 2x GPU setup with base model
-  patch_size:    [128, 128, 128]
-  optimizer:     "adamw"
-  lr:            3.0e-4
-  weight_decay:  1.0e-5
-  lr_scheduler:  "poly"             # poly decay as in nnU-Net
-  poly_exp:      0.9
-  warmup_epochs: 20                # new: linear warmup before poly decay
-  early_stopping_patience: 75       # ↑ from 50 — give more room post-warmup
+  epochs: 1000
+  batch_size: 4
+  patch_size:
+  - 128
+  - 128
+  - 128
+  optimizer: adamw
+  lr: 0.0003
+  weight_decay: 1.0e-05
+  lr_scheduler: poly
+  poly_exp: 0.9
+  warmup_epochs: 20
+  early_stopping_patience: 15
   mixed_precision: true
-  grad_clip:     0.5                # ↓ from 1.0 — tighter clipping
-
+  grad_clip: 0.5
 model:
-  size: "base"     # ↑ from small — small was under-capacity for 1453 scans
-
+  size: tiny
 loss:
-  dice_weight:       1.0
-  ce_weight:         1.0
-  boundary_weight:   0.5            # boundary focal term
-  small_lesion_threshold_ml: 1.0   # below this → upweighted
+  dice_weight: 1.0
+  ce_weight: 1.0
+  boundary_weight: 0.5
+  small_lesion_threshold_ml: 1.0
   small_lesion_weight: 2.0
-
-# Conditioning track — swapped via track config
 conditioning:
-  track: "A"                        # "A" = FiLM, "C" = LLM (sentence-transformer)
+  track: A
   film:
-    metadata_dim:   5               # [days_norm, chronicity_onehot(3), confirmed_chronic]
-    hidden_dim:     64
-    inject_at:      "bottleneck"    # where in decoder to inject
+    metadata_dim: 5
+    hidden_dim: 64
+    inject_at: bottleneck
   llm:
-    model_name:     "all-MiniLM-L6-v2"
-    embedding_dim:  384             # sentence-transformer output dim
-    hidden_dim:     128             # projection hidden dim
-    inject_at:      "bottleneck"
-    freeze_llm:     true            # sentence-transformer weights frozen
-
+    model_name: all-MiniLM-L6-v2
+    embedding_dim: 384
+    hidden_dim: 128
+    inject_at: bottleneck
+    freeze_llm: true
 tta:
   enabled: true
-  flips:   [[0], [1], [2], [0,1], [0,2], [1,2], [0,1,2]]
-
+  flips:
+  - - 0
+  - - 1
+  - - 2
+  - - 0
+    - 1
+  - - 0
+    - 2
+  - - 1
+    - 2
+  - - 0
+    - 1
+    - 2
 postprocessing:
-  min_component_size_voxels: 10    # remove speckle
-
+  min_component_size_voxels: 10
 evaluation:
-  metrics: ["dice", "hausdorff95", "precision", "recall"]
-  size_bins:                        # lesion-size stratified reporting
-    small:  [0,    1]
-    medium: [1,    10]
-    large:  [10,   1e9]
-
+  metrics:
+  - dice
+  - hausdorff95
+  - precision
+  - recall
+  size_bins:
+    small:
+    - 0
+    - 1
+    medium:
+    - 1
+    - 10
+    large:
+    - 10
+    - 1000000000.0
 logging:
-  level: "INFO"
-  log_dir: "/home/derrick/projects/film-isles26/outputs/logs"
+  level: INFO
+  log_dir: /home/derrick/projects/film-isles26/outputs/logs
